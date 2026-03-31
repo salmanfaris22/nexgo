@@ -13,10 +13,11 @@ import (
 	"github.com/salmanfaris22/nexgo/pkg/server"
 )
 
-const version = "1.0.0"
+const version = "1.0.4"
 
 func main() {
 	if len(os.Args) < 2 {
+
 		printUsage()
 		os.Exit(1)
 	}
@@ -90,18 +91,32 @@ func runBuild(args []string) {
 
 func runStart(args []string) {
 	rootDir := getRootDir(args)
+
 	cfg, err := config.Load(rootDir)
 	if err != nil {
 		fatal("Loading config: %v", err)
 	}
+
 	cfg.DevMode = false
+
 	if port := getFlag(args, "--port", "-p"); port != "" {
 		fmt.Sscan(port, &cfg.Port)
 	}
-	fmt.Printf("[NexGo] ▶  Production server → http://%s:%d\n", cfg.Host, cfg.Port)
-	select {}
-}
 
+	fmt.Printf("[NexGo] ▶ Production server → http://%s:%d\n", cfg.Host, cfg.Port)
+
+	// ✅ START SERVER
+	srv, err := server.New(cfg)
+	if err != nil {
+		fatal("Server init failed: %v", err)
+	}
+
+	ctx := context.Background()
+
+	if err := srv.Start(ctx); err != nil {
+		fatal("Server failed: %v", err)
+	}
+}
 func runCreate(args []string) {
 	name := "my-nexgo-app"
 	if len(args) > 0 {
