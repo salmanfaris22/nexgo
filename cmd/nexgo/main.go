@@ -56,7 +56,7 @@ func runDev(args []string) {
 		fmt.Sscan(port, &cfg.Port)
 	}
 
-	fmt.Printf("[NexGo] 🚀 Dev server → http://%s:%d\n", cfg.Host, cfg.Port)
+	fmt.Printf("[NexGo] 🚀 Dev server -----→ http://%s:%d\n", cfg.Host, cfg.Port)
 	fmt.Println("[NexGo] 🔥 Hot reload enabled. Press Ctrl+C to stop.")
 
 	// ✅ START SERVER HERE
