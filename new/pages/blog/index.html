@@ -1,0 +1,13 @@
+<div class="page-content">
+  <h1>Blog</h1>
+  {{ if .Props.posts }}
+    {{ range .Props.posts }}
+    <article class="blog-card">
+      <h2><a href="/blog/{{ .slug }}">{{ .title }}</a></h2>
+      <p>{{ .excerpt }}</p>
+    </article>
+    {{ end }}
+  {{ else }}
+    <p class="muted">Register a data loader for /blog in main.go to load posts.</p>
+  {{ end }}
+</div>

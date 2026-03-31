@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nexgo/nexgo/pkg/config"
-	"github.com/nexgo/nexgo/pkg/devtools"
-	"github.com/nexgo/nexgo/pkg/middleware"
-	"github.com/nexgo/nexgo/pkg/renderer"
-	"github.com/nexgo/nexgo/pkg/router"
-	"github.com/nexgo/nexgo/pkg/watcher"
+	"github.com/salmanfaris22/nexgo/pkg/config"
+	"github.com/salmanfaris22/nexgo/pkg/devtools"
+	"github.com/salmanfaris22/nexgo/pkg/middleware"
+	"github.com/salmanfaris22/nexgo/pkg/renderer"
+	"github.com/salmanfaris22/nexgo/pkg/router"
+	"github.com/salmanfaris22/nexgo/pkg/watcher"
 )
 
 // HMRClient is a connected hot-reload SSE client

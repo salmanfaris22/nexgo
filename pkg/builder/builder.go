@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nexgo/nexgo/pkg/config"
-	"github.com/nexgo/nexgo/pkg/renderer"
-	"github.com/nexgo/nexgo/pkg/router"
+	"github.com/salmanfaris22/nexgo/pkg/config"
+	"github.com/salmanfaris22/nexgo/pkg/renderer"
+	"github.com/salmanfaris22/nexgo/pkg/router"
 )
 
 // BuildResult contains build statistics

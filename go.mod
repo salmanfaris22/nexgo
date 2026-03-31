@@ -1,3 +1,3 @@
-module github.com/nexgo/nexgo
+module github.com/salmanfaris22/nexgo
 
 go 1.22

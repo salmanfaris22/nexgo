@@ -1,0 +1,13 @@
+{
+  "projectName": "new",
+  "port": 3000,
+  "pagesDir": "pages",
+  "staticDir": "static",
+  "layoutsDir": "layouts",
+  "componentsDir": "components",
+  "outputDir": ".nexgo/out",
+  "hotReload": true,
+  "compression": true,
+  "minify": true,
+  "defaultRenderMode": "ssr"
+}

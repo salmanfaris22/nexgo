@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nexgo/nexgo/pkg/builder"
-	"github.com/nexgo/nexgo/pkg/config"
+	"github.com/salmanfaris22/nexgo/pkg/builder"
+	"github.com/salmanfaris22/nexgo/pkg/config"
 )
 
 const version = "1.0.0"
@@ -200,7 +200,7 @@ func scaffoldFiles(name string) map[string]string {
   "minify": true,
   "defaultRenderMode": "ssr"
 }`, name),
-		"go.mod": fmt.Sprintf("module %s\n\ngo 1.22\n\nrequire github.com/nexgo/nexgo v1.0.0\n", name),
+		"go.mod": fmt.Sprintf("module %s\n\ngo 1.22\n\nrequire github.com/salmanfaris22/nexgo v1.0.0\n", name),
 		"main.go": `package main
 
 import (
@@ -209,8 +209,8 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/nexgo/nexgo/pkg/config"
-	"github.com/nexgo/nexgo/pkg/server"
+	"github.com/salmanfaris22/nexgo/pkg/config"
+	"github.com/salmanfaris22/nexgo/pkg/server"
 )
 
 func main() {
@@ -309,7 +309,7 @@ func main() {
 import (
 	"encoding/json"
 	"net/http"
-	"github.com/nexgo/nexgo/pkg/router"
+	"github.com/salmanfaris22/nexgo/pkg/router"
 )
 
 func init() { router.RegisterAPI("/api/hello", Hello) }
