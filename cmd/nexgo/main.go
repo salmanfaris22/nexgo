@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,18 +44,57 @@ func main() {
 
 func runDev(args []string) {
 	rootDir := getRootDir(args)
+
 	cfg, err := config.Load(rootDir)
 	if err != nil {
 		fatal("Loading config: %v", err)
 	}
+
 	cfg.DevMode = true
+
 	if port := getFlag(args, "--port", "-p"); port != "" {
 		fmt.Sscan(port, &cfg.Port)
 	}
+
 	fmt.Printf("[NexGo] 🚀 Dev server → http://%s:%d\n", cfg.Host, cfg.Port)
 	fmt.Println("[NexGo] 🔥 Hot reload enabled. Press Ctrl+C to stop.")
-	select {}
+
+	// ✅ START SERVER HERE
+	err = Start(cfg) // 👈 IMPORTANT
+	if err != nil {
+		fatal("Server failed: %v", err)
+	}
 }
+
+type Config struct {
+	Host string
+	Port int
+}
+
+func Start(cfg *config.NexGoConfig) error {
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Hello from NexGo 🚀"))
+	})
+
+	return http.ListenAndServe(addr, nil)
+}
+
+// func runDev(args []string) {
+// 	rootDir := getRootDir(args)
+// 	cfg, err := config.Load(rootDir)
+// 	if err != nil {
+// 		fatal("Loading config: %v", err)
+// 	}
+// 	cfg.DevMode = true
+// 	if port := getFlag(args, "--port", "-p"); port != "" {
+// 		fmt.Sscan(port, &cfg.Port)
+// 	}
+// 	fmt.Printf("[NexGo] 🚀 Dev server → http://%s:%d\n", cfg.Host, cfg.Port)
+// 	fmt.Println("[NexGo] 🔥 Hot reload enabled. Press Ctrl+C to stop.")
+// 	select {}
+// }
 
 func runBuild(args []string) {
 	rootDir := getRootDir(args)

@@ -10,6 +10,22 @@
   </pre>
 </p>
 
+
+INSTALL CODE go install github.com/salmanfaris22/nexgo/cmd/nexgo@v1.0.0
+
+✅ FIX PATH (VERY IMPORTANT)
+
+Run:
+
+export PATH=$PATH:$(go env GOPATH)/bin
+Make it permanent (recommended)
+echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.bashrc
+source ~/.bashrc
+🔁 Now test again
+nexgo
+
+
+
 <h3 align="center">The Go-Powered Web Framework Inspired by Next.js</h3>
 
 <p align="center">
