@@ -1,7 +1,6 @@
 package watcher
 
 import (
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -94,20 +93,14 @@ func (w *Watcher) scan(notify bool) {
 	current := make(map[string]time.Time)
 
 	for _, dir := range dirs {
-		filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			info, err := d.Info()
 			if err != nil {
 				return nil
 			}
-
-			if d.IsDir() {
-				return nil
-			}
-
-			info, err := os.Stat(path)
-			if err != nil {
-				return nil
-			}
-
 			current[path] = info.ModTime()
 			return nil
 		})
@@ -122,33 +115,37 @@ func (w *Watcher) scan(notify bool) {
 
 	w.mu.Lock()
 	cache := w.fileCache
-	callbacks := append([]func(Event){}, w.callbacks...)
+	callbacks := make([]func(Event), len(w.callbacks))
+	copy(callbacks, w.callbacks)
 	w.mu.Unlock()
 
-	// CREATE + MODIFY
+	changed := false
 	for path, modTime := range current {
-		if oldTime, existed := cache[path]; !existed {
-			event := Event{Path: path, Type: ChangeCreate}
+		cached, existed := cache[path]
+		if !existed {
+			// New file
 			for _, cb := range callbacks {
-				cb(event)
+				cb(Event{Path: path, Type: ChangeCreate})
 			}
-		} else if modTime.After(oldTime) {
-			event := Event{Path: path, Type: ChangeModify}
+			changed = true
+		} else if modTime.After(cached) {
+			// Modified file
 			for _, cb := range callbacks {
-				cb(event)
+				cb(Event{Path: path, Type: ChangeModify})
 			}
+			changed = true
 		}
 	}
-
-	// DELETE
+	// Detect deletions
 	for path := range cache {
 		if _, exists := current[path]; !exists {
-			event := Event{Path: path, Type: ChangeDelete}
 			for _, cb := range callbacks {
-				cb(event)
+				cb(Event{Path: path, Type: ChangeDelete})
 			}
+			changed = true
 		}
 	}
+	_ = changed
 
 	w.mu.Lock()
 	w.fileCache = current

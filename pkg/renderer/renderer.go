@@ -323,6 +323,7 @@ func (r *Renderer) Reload() error {
 func (r *Renderer) buildFuncMap() template.FuncMap {
 	return template.FuncMap{
 		// JSON encode a value
+
 		"json": func(v interface{}) template.JS {
 			b, _ := json.Marshal(v)
 			return template.JS(b)
@@ -330,6 +331,18 @@ func (r *Renderer) buildFuncMap() template.FuncMap {
 		// Safe HTML
 		"safeHTML": func(s string) template.HTML {
 			return template.HTML(s)
+		},
+		// 🔥 ADD THIS BLOCK
+		"dict": func(values ...interface{}) map[string]interface{} {
+			dict := make(map[string]interface{})
+			for i := 0; i < len(values); i += 2 {
+				key := values[i].(string)
+				dict[key] = values[i+1]
+			}
+			return dict
+		},
+		"slice": func(values ...interface{}) []interface{} {
+			return values
 		},
 		// Asset URL with cache busting
 		"asset": func(path string) string {
@@ -339,6 +352,7 @@ func (r *Renderer) buildFuncMap() template.FuncMap {
 		"link": func(path string) string {
 			return path
 		},
+
 		// Iterate n times
 		"times": func(n int) []int {
 			result := make([]int, n)

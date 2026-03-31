@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nexgo/nexgo/pkg/config"
+	"github.com/nexgo/nexgo/pkg/devtools"
 	"github.com/nexgo/nexgo/pkg/middleware"
 	"github.com/nexgo/nexgo/pkg/renderer"
 	"github.com/nexgo/nexgo/pkg/router"
@@ -72,10 +74,14 @@ func (s *Server) Start(ctx context.Context) error {
 	// NexGo runtime JS
 	mux.HandleFunc("/_nexgo/runtime.js", s.handleRuntime)
 
+	// Live rendering endpoint (works in all modes)
+	mux.HandleFunc("/_nexgo/live", s.handleLive)
+
 	if s.cfg.DevMode {
 		mux.HandleFunc("/_nexgo/hmr", s.handleHMR)
 		mux.HandleFunc("/_nexgo/routes", s.handleDevRoutes)
 		mux.HandleFunc("/_nexgo/reload", s.handleManualReload)
+		mux.HandleFunc("/_nexgo/devtools", s.handleDevTools)
 
 		s.watcher.Watch(s.cfg.PagesAbsDir())
 		s.watcher.Watch(s.cfg.AbsPath(s.cfg.LayoutsDir))
@@ -227,10 +233,33 @@ func (s *Server) handleDevRoutes(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(list)
 }
 
+func (s *Server) handleDevTools(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write([]byte(devtools.DevToolsHTML))
+}
+
 func (s *Server) handleManualReload(w http.ResponseWriter, r *http.Request) {
 	s.reload()
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
+	text := r.URL.Query().Get("text")
+	tag := r.URL.Query().Get("tag")
+	if tag == "" {
+		tag = "h1"
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if text != "" {
+		escaped := template.HTMLEscapeString(text)
+		fmt.Fprintf(w, "<%s class=\"gradient\" style=\"font-size:3rem;font-weight:900;\">%s</%s>", tag, escaped, tag)
+	} else {
+		fmt.Fprint(w, `<p style="color:var(--muted);">Start typing above...</p>`)
+	}
 }
 
 func (s *Server) handleRuntime(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +283,9 @@ func (s *Server) printBanner(addr string) {
 	fmt.Printf("  \033[1mLocal:\033[0m   \033[4mhttp://%s\033[0m\n", addr)
 	fmt.Printf("  \033[1mMode:\033[0m    %s\n", mode)
 	fmt.Printf("  \033[1mPages:\033[0m   ./%s/\n", s.cfg.PagesDir)
+	if s.cfg.DevMode {
+		fmt.Printf("  \033[1mDevtools:\033[0m \033[4mhttp://%s/_nexgo/devtools\033[0m\n", addr)
+	}
 	fmt.Println()
 
 	routes := s.router.GetRoutes()
@@ -298,10 +330,12 @@ const NexGo={
         root.style.cssText='opacity:0;transform:translateY(6px);transition:opacity 0.15s,transform 0.15s';
         await new Promise(r=>setTimeout(r,150));
         root.innerHTML=newRoot.innerHTML;
+        root.querySelectorAll('script').forEach(function(old){var s=document.createElement('script');s.textContent=old.textContent;old.replaceWith(s);});
         document.title=doc.title;
         root.style.cssText='opacity:0;transform:translateY(6px)';
         requestAnimationFrame(()=>{root.style.cssText='opacity:1;transform:translateY(0);transition:opacity 0.2s,transform 0.2s';});
         this._initLinks();
+        NexGo._initLive();
         document.dispatchEvent(new CustomEvent('nexgo:navigate',{detail:{url}}));
       }catch(e){location.href=url;}
     },
@@ -350,11 +384,30 @@ const NexGo={
     }else{imgs.forEach(i=>{i.src=i.dataset.src;});}
   },
 
+  _initLive(){
+    const input=document.getElementById('nexgo-input');
+    const output=document.getElementById('live-output');
+    if(!input||!output)return;
+    let t=null;
+    input.addEventListener('input',function(){
+      clearTimeout(t);
+      t=setTimeout(function(){
+        var x=new XMLHttpRequest();
+        x.open('GET','/_nexgo/live?text='+encodeURIComponent(input.value));
+        x.onload=function(){if(x.status===200){output.innerHTML=x.responseText;}};
+        x.send();
+      },50);
+    });
+    input.addEventListener('focus',function(){input.style.borderColor='var(--accent)';});
+    input.addEventListener('blur',function(){input.style.borderColor='var(--border)';});
+  },
+
   init(){
     this.router._initLinks();
     this._initHMR();
     this._initPrefetch();
     this._initLazy();
+    this._initLive();
     window.addEventListener('popstate',()=>this.router._load(location.pathname));
     document.dispatchEvent(new CustomEvent('nexgo:ready',{}));
   }
