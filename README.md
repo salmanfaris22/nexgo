@@ -11,7 +11,7 @@
 </p>
 
 
-INSTALL CODE go install github.com/salmanfaris22/nexgo/cmd/nexgo@v1.0.0
+INSTALL CODE go install github.com/salmanfaris22/nexgo/cmd/nexgo@v1.0.5
 
 ✅ FIX PATH (VERY IMPORTANT)
 

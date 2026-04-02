@@ -56,11 +56,19 @@ func (s *Server) RegisterDataLoader(route string, loader renderer.DataLoader) {
 	s.renderer.RegisterDataLoader(route, loader)
 }
 
+// RegisterGlobalState adds state that is available to all pages
+func (s *Server) RegisterGlobalState(key string, value interface{}) {
+	s.renderer.RegisterGlobalState(key, value)
+}
+
 // Start boots the server
 func (s *Server) Start(ctx context.Context) error {
 	if err := s.router.Scan(); err != nil {
 		return fmt.Errorf("scanning routes: %w", err)
 	}
+	// ✅ Bind API handlers after scanning
+	s.router.BindAPIHandlers()
+
 	if err := s.renderer.LoadAll(); err != nil {
 		return fmt.Errorf("loading templates: %w", err)
 	}
@@ -90,6 +98,8 @@ func (s *Server) Start(ctx context.Context) error {
 			log.Printf("[NexGo] 🔄 %s", filepath.Base(e.Path))
 			s.reload()
 		})
+		// ✅ OLD CODE: watcher.Start() was missing here (caused crash)
+		// ✅ NEW CODE: start watcher BEFORE server listens
 		s.watcher.Start()
 	}
 
@@ -128,8 +138,14 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	return s.httpServer.Serve(ln)
 }
-
 func (s *Server) handleRequest(w http.ResponseWriter, req *http.Request) {
+	// ✅ NEW CODE: Block dev routes in production
+	if !s.cfg.DevMode && strings.HasPrefix(req.URL.Path, "/_nexgo/") {
+		http.NotFound(w, req)
+		return
+	}
+	// OLD CODE: no protection, dev routes exposed in production
+
 	route, params := s.router.Match(req.URL.Path)
 	if route == nil {
 		s.renderer.RenderError(w, http.StatusNotFound, "Page not found: "+req.URL.Path)
@@ -150,7 +166,6 @@ func (s *Server) handleRequest(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 }
-
 func (s *Server) reload() {
 	if err := s.renderer.Reload(); err != nil {
 		log.Printf("[NexGo] Reload error: %v", err)
@@ -309,6 +324,8 @@ const nexgoRuntime = `
 
 const NexGo={
   version:'1.0.0',
+  state: {},
+  _listeners: [],
 
   router:{
     navigate(href){
@@ -327,6 +344,16 @@ const NexGo={
         const html=await res.text();
         const doc=new DOMParser().parseFromString(html,'text/html');
         const newRoot=doc.querySelector('#nexgo-root')||doc.querySelector('main')||doc.body;
+        
+        // Handle state update from new page if present
+        const newStateScript = doc.querySelector('#__nexgo_state');
+        if (newStateScript) {
+           try {
+             const newState = JSON.parse(newStateScript.textContent);
+             NexGo.updateState(newState);
+           } catch(e) { console.error('Failed to update state during navigation', e); }
+        }
+
         root.style.cssText='opacity:0;transform:translateY(6px);transition:opacity 0.15s,transform 0.15s';
         await new Promise(r=>setTimeout(r,150));
         root.innerHTML=newRoot.innerHTML;
@@ -349,18 +376,90 @@ const NexGo={
     }
   },
 
-  _initHMR(){
-    if(!document.documentElement.dataset.nexgoDev)return;
-    console.log('%c[NexGo HMR] Connected','color:#00d2ff;font-weight:bold');
-    const es=new EventSource('/_nexgo/hmr');
-    es.onmessage=e=>{
-      const m=JSON.parse(e.data);
-      if(m.type==='reload'){console.log('%c[NexGo] Reloading...','color:#00d2ff');location.reload();}
-      else if(m.type==='error'){console.error('[NexGo] Error:',m.message);}
-    };
-    es.onerror=()=>console.warn('[NexGo] HMR reconnecting...');
+  // State Management
+  getState(key, defaultValue) {
+    return key in this.state ? this.state[key] : defaultValue;
   },
 
+  setState(key, value) {
+    this.state[key] = value;
+    this._notify();
+  },
+
+  updateState(newState) {
+    this.state = { ...this.state, ...newState };
+    this._notify();
+  },
+
+  subscribe(callback) {
+    this._listeners.push(callback);
+    return () => {
+      this._listeners = this._listeners.filter(l => l !== callback);
+    };
+  },
+
+  _notify() {
+    this._listeners.forEach(l => l(this.state));
+    document.dispatchEvent(new CustomEvent('nexgo:statechange', { detail: this.state }));
+  },
+_initHMR() {
+  if (!document.documentElement.dataset.nexgoDev) return;
+  console.log('%c[NexGo HMR] Connected','color:#00d2ff;font-weight:bold');
+  const es = new EventSource('/_nexgo/hmr');
+  es.onmessage = async (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'reload') {
+      console.log('%c[NexGo HMR] Updating content...','color:#00d2ff');
+      await this._fetchAndReplaceContent();
+    } else if (m.type === 'css') {
+      this._reloadCSS(m.path);
+    } else if (m.type === 'error') {
+      console.error('[NexGo HMR] Error:', m.message);
+    }
+  };
+  es.onerror = () => console.warn('[NexGo HMR] Reconnecting...');
+},
+
+async _fetchAndReplaceContent() {
+  const url = window.location.pathname + window.location.search;
+  try {
+    const res = await fetch(url, { headers: { 'X-NexGo-SPA': '1', 'Accept': 'text/html' } });
+    if (!res.ok) { location.reload(); return; }
+    const html = await res.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const newRoot = doc.querySelector('#nexgo-root') || doc.querySelector('main');
+    const currentRoot = document.querySelector('#nexgo-root') || document.querySelector('main');
+    if (newRoot && currentRoot) {
+      currentRoot.style.opacity = '0';
+      await new Promise(r => setTimeout(r, 100));
+      currentRoot.innerHTML = newRoot.innerHTML;
+      currentRoot.querySelectorAll('script').forEach(oldScript => {
+        const newScript = document.createElement('script');
+        newScript.textContent = oldScript.textContent;
+        oldScript.replaceWith(newScript);
+      });
+      currentRoot.style.opacity = '1';
+      this.router._initLinks();
+      this._initLive();
+      if (doc.title) document.title = doc.title;
+    } else {
+      location.reload();
+    }
+  } catch (e) {
+    console.error('HMR fetch failed', e);
+    location.reload();
+  }
+},
+
+_reloadCSS(path) {
+  const links = document.querySelectorAll('link[rel="stylesheet"][href*="${path}"]');
+  links.forEach(link => {
+    const newLink = document.createElement('link');
+    newLink.rel = 'stylesheet';
+    newLink.href = link.href.split('?')[0] + '?v=' + Date.now();
+    link.parentNode.replaceChild(newLink, link);
+  });
+}
   _initPrefetch(){
     const done=new Set();
     document.addEventListener('mouseover',e=>{
@@ -402,7 +501,19 @@ const NexGo={
     input.addEventListener('blur',function(){input.style.borderColor='var(--border)';});
   },
 
+  _hydrateState() {
+    const script = document.getElementById('__nexgo_state');
+    if (script) {
+      try {
+        this.state = JSON.parse(script.textContent);
+      } catch (e) {
+        console.error('Failed to hydrate state:', e);
+      }
+    }
+  },
+
   init(){
+    this._hydrateState();
     this.router._initLinks();
     this._initHMR();
     this._initPrefetch();

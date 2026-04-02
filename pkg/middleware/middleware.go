@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -86,7 +87,7 @@ func SecurityHeaders(next http.HandlerFunc) http.HandlerFunc {
 func Cache(maxAge int) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Cache-Control", "public, max-age="+string(rune(maxAge)))
+			w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(maxAge))
 			next(w, r)
 		}
 	}

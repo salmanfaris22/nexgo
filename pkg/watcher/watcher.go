@@ -123,31 +123,36 @@ func (w *Watcher) scan(notify bool) {
 	for path, modTime := range current {
 		cached, existed := cache[path]
 		if !existed {
-			// New file
 			for _, cb := range callbacks {
 				cb(Event{Path: path, Type: ChangeCreate})
 			}
 			changed = true
 		} else if modTime.After(cached) {
-			// Modified file
 			for _, cb := range callbacks {
 				cb(Event{Path: path, Type: ChangeModify})
 			}
 			changed = true
 		}
 	}
-	// Detect deletions
+	// Detect deletions and remove from cache
 	for path := range cache {
 		if _, exists := current[path]; !exists {
 			for _, cb := range callbacks {
 				cb(Event{Path: path, Type: ChangeDelete})
 			}
 			changed = true
+			// ✅ NEW CODE: immediately delete from fileCache to prevent memory leak
+			w.mu.Lock()
+			delete(w.fileCache, path)
+			w.mu.Unlock()
 		}
 	}
 	_ = changed
 
 	w.mu.Lock()
-	w.fileCache = current
+	// Merge current into fileCache (preserve new files)
+	for path, modTime := range current {
+		w.fileCache[path] = modTime
+	}
 	w.mu.Unlock()
 }

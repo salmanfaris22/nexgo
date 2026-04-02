@@ -133,6 +133,28 @@ func (r *Router) Scan() error {
 	return nil
 }
 
+// BindAPIHandlers associates routes with registered API handlers
+func (r *Router) BindAPIHandlers() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, route := range r.routes {
+		if route.Type == RouteTypeAPI {
+			if h, ok := APIHandlerRegistry[route.Pattern]; ok {
+				route.Handler = h
+			} else {
+				// Also try without trailing slash normalization
+				normalized := route.Pattern
+				if strings.HasSuffix(normalized, "/") {
+					normalized = normalized[:len(normalized)-1]
+				}
+				if h, ok := APIHandlerRegistry[normalized]; ok {
+					route.Handler = h
+				}
+			}
+		}
+	}
+}
+
 // fileToRoute converts a file path to a Route
 func (r *Router) fileToRoute(rel, abs string) (*Route, error) {
 	ext := filepath.Ext(rel)
@@ -151,13 +173,24 @@ func (r *Router) fileToRoute(rel, abs string) (*Route, error) {
 		return nil, nil
 	}
 
-	// API routes: pages/api/*
-	if strings.HasPrefix(name, "api/") {
-		routeType = RouteTypeAPI
-	}
-
 	// Build URL pattern from file path
 	pattern := "/" + name
+
+	// ✅ FIX: API routes special handling
+	if routeType == RouteTypeAPI {
+		// OLD CODE: pattern was just "/" + name (e.g., "/api/hello.go")
+		// NEW CODE: correct API path without .go extension
+		pattern = "/" + strings.TrimSuffix(name, ".go")
+		// Ensure /api prefix
+		if !strings.HasPrefix(pattern, "/api") {
+			pattern = "/api" + pattern
+		}
+		// Remove double slashes
+		pattern = strings.ReplaceAll(pattern, "//", "/")
+		if pattern == "/api" {
+			pattern = "/api/"
+		}
+	}
 
 	// Handle index routes
 	pattern = strings.TrimSuffix(pattern, "/index")

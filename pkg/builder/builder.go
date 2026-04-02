@@ -96,9 +96,20 @@ func (b *Builder) Build() (*BuildResult, error) {
 }
 
 func (b *Builder) buildPage(route *router.Route) error {
-	// Create fake request for rendering
+	// Create fake request with context
 	req := httptest.NewRequest("GET", route.Pattern, nil)
+	// Add params to context if needed
+	if len(route.Params) > 0 {
+		ctx := router.WithParams(req.Context(), make(map[string]string))
+		req = req.WithContext(ctx)
+	}
 	w := httptest.NewRecorder()
+
+	// ✅ OLD CODE: dev mode was left as true, causing renderer to expect live reload
+	// ✅ NEW CODE: force dev mode off during build
+	originalDevMode := b.cfg.DevMode
+	b.cfg.DevMode = false
+	defer func() { b.cfg.DevMode = originalDevMode }()
 
 	if err := b.renderer.RenderPage(w, req, route.FilePath, map[string]string{}); err != nil {
 		return err

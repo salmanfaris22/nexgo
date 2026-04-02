@@ -32,6 +32,9 @@ type PageData struct {
 	// User data (from GetServerSideProps equivalent)
 	Props map[string]interface{}
 
+	// Global state (shared across all pages)
+	State map[string]interface{}
+
 	// Framework internals
 	NexGoVersion string
 	DevMode      bool
@@ -52,6 +55,7 @@ type Renderer struct {
 	layouts     map[string]*template.Template
 	components  map[string]*template.Template
 	dataLoaders map[string]DataLoader
+	globalState map[string]interface{}
 	funcMap     template.FuncMap
 	buildID     string
 }
@@ -64,6 +68,7 @@ func New(cfg *config.NexGoConfig) *Renderer {
 		layouts:     make(map[string]*template.Template),
 		components:  make(map[string]*template.Template),
 		dataLoaders: make(map[string]DataLoader),
+		globalState: make(map[string]interface{}),
 		buildID:     fmt.Sprintf("%d", time.Now().Unix()),
 	}
 	r.funcMap = r.buildFuncMap()
@@ -75,6 +80,13 @@ func (r *Renderer) RegisterDataLoader(route string, loader DataLoader) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.dataLoaders[route] = loader
+}
+
+// RegisterGlobalState registers state that is available to all pages
+func (r *Renderer) RegisterGlobalState(key string, value interface{}) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.globalState[key] = value
 }
 
 // LoadAll scans and compiles all templates
@@ -235,14 +247,26 @@ func (r *Renderer) RenderPage(w http.ResponseWriter, req *http.Request, filePath
 		Params:       params,
 		Query:        map[string][]string(req.URL.Query()),
 		Props:        make(map[string]interface{}),
+		State:        make(map[string]interface{}),
 		NexGoVersion: "1.0.0",
 		DevMode:      r.cfg.DevMode,
 		BuildID:      r.buildID,
 		Request:      req,
 	}
 
-	// Call data loader if registered
-	if loader, ok := r.dataLoaders["/"+name]; ok {
+	// Copy global state
+	for k, v := range r.globalState {
+		pageData.State[k] = v
+	}
+
+	// Call data loader if registered (use route pattern as key)
+	routePattern := "/" + name
+	if name == "index" {
+		routePattern = "/"
+	} else if strings.HasSuffix(name, "/index") {
+		routePattern = "/" + strings.TrimSuffix(name, "/index")
+	}
+	if loader, ok := r.dataLoaders[routePattern]; ok {
 		props, err := loader(req, params)
 		if err != nil {
 			return fmt.Errorf("data loader error for %s: %w", name, err)
@@ -306,7 +330,7 @@ func (r *Renderer) renderWithLayout(w http.ResponseWriter, layout, page *templat
 func (r *Renderer) RenderError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, errorPageHTML, status, http.StatusText(status), message)
+	fmt.Fprintf(w, errorPageHTML, status, http.StatusText(status), status, http.StatusText(status), message)
 }
 
 // Reload recompiles all templates (used in dev mode)
@@ -348,6 +372,11 @@ func (r *Renderer) buildFuncMap() template.FuncMap {
 		"asset": func(path string) string {
 			return fmt.Sprintf("/_nexgo/static/%s?v=%s", strings.TrimPrefix(path, "/"), r.buildID)
 		},
+		// State hydration script
+		"renderState": func(state map[string]interface{}) template.HTML {
+			b, _ := json.Marshal(state)
+			return template.HTML(fmt.Sprintf("<script id=\"__nexgo_state\" type=\"application/json\">%s</script>", string(b)))
+		},
 		// Link to a page
 		"link": func(path string) string {
 			return path
@@ -362,9 +391,17 @@ func (r *Renderer) buildFuncMap() template.FuncMap {
 			return result
 		},
 		// String formatting
-		"upper":   strings.ToUpper,
-		"lower":   strings.ToLower,
-		"title":   strings.Title,
+		"upper": strings.ToUpper,
+		"lower": strings.ToLower,
+		"title": func(s string) string {
+			words := strings.Fields(s)
+			for i, w := range words {
+				if len(w) > 0 {
+					words[i] = strings.ToUpper(w[:1]) + w[1:]
+				}
+			}
+			return strings.Join(words, " ")
+		},
 		"replace": strings.ReplaceAll,
 		"trim":    strings.TrimSpace,
 		"split":   strings.Split,
