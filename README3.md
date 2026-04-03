@@ -1,5 +1,5 @@
 # NexGo v1.2.0 — Advanced Features Guide
-
+done
 Complete guide to NexGo's built-in features: State Management, SEO, Template Caching, Parallel Data Loading, Streaming SSR, Response Caching, Worker Pools, and Incremental Static Regeneration (ISR).
 
 ---
