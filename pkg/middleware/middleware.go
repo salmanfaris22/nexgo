@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"bufio"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,10 +37,12 @@ func Logger(next http.HandlerFunc) http.HandlerFunc {
 
 // CORS middleware adds cross-origin headers
 func CORS(origins ...string) func(http.HandlerFunc) http.HandlerFunc {
-	allowed := "*"
-	if len(origins) > 0 {
-		allowed = strings.Join(origins, ", ")
+	if len(origins) == 0 {
+		return func(next http.HandlerFunc) http.HandlerFunc {
+			return next
+		}
 	}
+	allowed := strings.Join(origins, ", ")
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", allowed)
@@ -128,6 +133,19 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying writer does not support Hijack")
+}
+
 type gzipResponseWriter struct {
 	http.ResponseWriter
 	writer io.Writer
@@ -135,4 +153,17 @@ type gzipResponseWriter struct {
 
 func (g *gzipResponseWriter) Write(data []byte) (int, error) {
 	return g.writer.Write(data)
+}
+
+func (g *gzipResponseWriter) Flush() {
+	if f, ok := g.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (g *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := g.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying writer does not support Hijack")
 }

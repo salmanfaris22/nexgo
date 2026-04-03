@@ -15,54 +15,26 @@ import (
 type RouteType int
 
 const (
-	RouteTypePage   RouteType = iota // HTML template page
-	RouteTypeAPI                     // Go API handler
-	RouteTypeStatic                  // Static file
-	RouteTypeLayout                  // Layout template
+	RouteTypePage RouteType = iota // HTML template page
+	RouteTypeAPI                   // Go API handler
 )
 
-// RenderMode defines SSR/SSG/SPA rendering strategy
-type RenderMode string
-
+// Route priority levels (higher = matched first)
 const (
-	RenderSSR RenderMode = "ssr" // Server-side render on each request
-	RenderSSG RenderMode = "ssg" // Static generation at build time
-	RenderSPA RenderMode = "spa" // Client-side only
+	PriorityStatic   = 100
+	PriorityDynamic  = 50
+	PriorityCatchAll = 10
 )
 
 // Route represents a single route in the app
 type Route struct {
-	// Route pattern (e.g. "/blog/[slug]")
-	Pattern string
-
-	// Regex for dynamic segments
-	Regex *regexp.Regexp
-
-	// Parameter names extracted from pattern
-	Params []string
-
-	// File path on disk
+	Pattern  string
+	Regex    *regexp.Regexp
+	Params   []string
 	FilePath string
-
-	// Route type
-	Type RouteType
-
-	// Render mode
-	Mode RenderMode
-
-	// API handler (for API routes)
-	Handler http.HandlerFunc
-
-	// Middlewares for this route
-	Middlewares []Middleware
-
-	// Is this a catch-all route ([...slug])
+	Type     RouteType
+	Handler  http.HandlerFunc
 	CatchAll bool
-
-	// Layout name to use
-	Layout string
-
-	// Priority (more specific routes = higher priority)
 	Priority int
 }
 
@@ -70,11 +42,16 @@ type Route struct {
 type Middleware func(http.HandlerFunc) http.HandlerFunc
 
 // APIHandlerRegistry maps API route paths to Go handlers
-var APIHandlerRegistry = make(map[string]http.HandlerFunc)
+var (
+	apiHandlerRegistry = make(map[string]http.HandlerFunc)
+	apiRegMu           sync.RWMutex
+)
 
 // RegisterAPI allows pages/api/*.go files to register handlers
 func RegisterAPI(pattern string, handler http.HandlerFunc) {
-	APIHandlerRegistry[pattern] = handler
+	apiRegMu.Lock()
+	defer apiRegMu.Unlock()
+	apiHandlerRegistry[pattern] = handler
 }
 
 // Router manages all application routes
@@ -113,7 +90,12 @@ func (r *Router) Scan() error {
 
 		rel, _ := filepath.Rel(r.pagesDir, path)
 		route, err := r.fileToRoute(rel, path)
-		if err != nil || route == nil {
+		if err != nil {
+			// Log route parsing errors instead of silently ignoring
+			fmt.Printf("[NexGo] Route error for %s: %v\n", rel, err)
+			return nil
+		}
+		if route == nil {
 			return nil
 		}
 
@@ -137,17 +119,18 @@ func (r *Router) Scan() error {
 func (r *Router) BindAPIHandlers() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	apiRegMu.RLock()
+	defer apiRegMu.RUnlock()
 	for _, route := range r.routes {
 		if route.Type == RouteTypeAPI {
-			if h, ok := APIHandlerRegistry[route.Pattern]; ok {
+			if h, ok := apiHandlerRegistry[route.Pattern]; ok {
 				route.Handler = h
 			} else {
-				// Also try without trailing slash normalization
 				normalized := route.Pattern
 				if strings.HasSuffix(normalized, "/") {
 					normalized = normalized[:len(normalized)-1]
 				}
-				if h, ok := APIHandlerRegistry[normalized]; ok {
+				if h, ok := apiHandlerRegistry[normalized]; ok {
 					route.Handler = h
 				}
 			}
@@ -176,16 +159,11 @@ func (r *Router) fileToRoute(rel, abs string) (*Route, error) {
 	// Build URL pattern from file path
 	pattern := "/" + name
 
-	// ✅ FIX: API routes special handling
 	if routeType == RouteTypeAPI {
-		// OLD CODE: pattern was just "/" + name (e.g., "/api/hello.go")
-		// NEW CODE: correct API path without .go extension
-		pattern = "/" + strings.TrimSuffix(name, ".go")
-		// Ensure /api prefix
+		pattern = "/" + name
 		if !strings.HasPrefix(pattern, "/api") {
 			pattern = "/api" + pattern
 		}
-		// Remove double slashes
 		pattern = strings.ReplaceAll(pattern, "//", "/")
 		if pattern == "/api" {
 			pattern = "/api/"
@@ -201,25 +179,23 @@ func (r *Router) fileToRoute(rel, abs string) (*Route, error) {
 	// Parse dynamic segments: [param] and [...catchall]
 	params := []string{}
 	catchAll := false
-	priority := 100
+	priority := PriorityStatic
 
 	// Convert [param] and [...param] to regex groups
 	regexStr := pattern
 	segments := strings.Split(pattern, "/")
 	for i, seg := range segments {
 		if strings.HasPrefix(seg, "[...") && strings.HasSuffix(seg, "]") {
-			// Catch-all: [...slug]
 			paramName := seg[4 : len(seg)-1]
 			params = append(params, paramName)
 			segments[i] = "(.+)"
 			catchAll = true
-			priority = 10
+			priority = PriorityCatchAll
 		} else if strings.HasPrefix(seg, "[") && strings.HasSuffix(seg, "]") {
-			// Dynamic: [param]
 			paramName := seg[1 : len(seg)-1]
 			params = append(params, paramName)
 			segments[i] = "([^/]+)"
-			priority = 50
+			priority = PriorityDynamic
 		}
 	}
 	regexStr = "^" + strings.Join(segments, "/") + "$"
@@ -235,17 +211,15 @@ func (r *Router) fileToRoute(rel, abs string) (*Route, error) {
 		Params:   params,
 		FilePath: abs,
 		Type:     routeType,
-		Mode:     RenderSSR,
 		CatchAll: catchAll,
 		Priority: priority,
 	}
 
-	// Register API handler if exists in registry
-	if routeType == RouteTypeAPI {
-		if h, ok := APIHandlerRegistry[pattern]; ok {
-			route.Handler = h
-		}
+	apiRegMu.RLock()
+	if h, ok := apiHandlerRegistry[pattern]; ok {
+		route.Handler = h
 	}
+	apiRegMu.RUnlock()
 
 	return route, nil
 }
@@ -321,7 +295,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	req = req.WithContext(ctx)
 
 	if route.Handler != nil {
-		handler := r.applyMiddleware(route.Handler, route.Middlewares)
+		handler := r.applyMiddleware(route.Handler, nil)
 		handler(w, req)
 	} else {
 		// Will be handled by renderer

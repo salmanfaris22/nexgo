@@ -3,8 +3,16 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
+	"html/template"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/salmanfaris22/nexgo/pkg/cache"
 )
 
 // JSON writes a JSON response with status 200
@@ -59,9 +67,8 @@ func InternalError(w http.ResponseWriter, err error) {
 }
 
 // Decode reads and decodes a JSON request body into v.
-// Returns false and writes a 400 if parsing fails.
 func Decode(w http.ResponseWriter, r *http.Request, v interface{}) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<20) // 4MB limit
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
@@ -72,26 +79,21 @@ func Decode(w http.ResponseWriter, r *http.Request, v interface{}) bool {
 }
 
 // MethodGuard checks that the request uses one of the allowed methods.
-// Returns false and writes 405 if the method is not allowed.
 func MethodGuard(w http.ResponseWriter, r *http.Request, methods ...string) bool {
 	for _, m := range methods {
 		if r.Method == m {
 			return true
 		}
 	}
-	w.Header().Set("Allow", joinMethods(methods))
+	w.Header().Set("Allow", strings.Join(methods, ", "))
 	Error(w, http.StatusMethodNotAllowed, "Method "+r.Method+" not allowed")
 	return false
 }
 
-// Route dispatches to different handlers based on HTTP method.
-//
-//	api.Route(w, r, api.Methods{
-//	    "GET":    listUsers,
-//	    "POST":   createUser,
-//	})
+// Methods is a map of HTTP method to handler
 type Methods map[string]http.HandlerFunc
 
+// Route dispatches to different handlers based on HTTP method.
 func Route(w http.ResponseWriter, r *http.Request, methods Methods) {
 	if h, ok := methods[r.Method]; ok {
 		h(w, r)
@@ -101,7 +103,7 @@ func Route(w http.ResponseWriter, r *http.Request, methods Methods) {
 	for m := range methods {
 		allowed = append(allowed, m)
 	}
-	w.Header().Set("Allow", joinMethods(allowed))
+	w.Header().Set("Allow", strings.Join(allowed, ", "))
 	Error(w, http.StatusMethodNotAllowed, "Method "+r.Method+" not allowed")
 }
 
@@ -123,53 +125,144 @@ func queryInt(r *http.Request, key string, def int) int {
 	if val == "" {
 		return def
 	}
-	var n int
-	if _, err := parseint(val, &n); err != nil {
+	n, err := strconv.Atoi(val)
+	if err != nil {
 		return def
 	}
 	return n
 }
 
-func parseint(s string, out *int) (int, error) {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0, &parseError{s}
-		}
-		n = n*10 + int(c-'0')
-	}
-	if out != nil {
-		*out = n
-	}
-	return n, nil
+// ---------------------------------------------------------------------------
+// HTMX helpers
+// ---------------------------------------------------------------------------
+
+// IsHTMX returns true if the request comes from HTMX
+func IsHTMX(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true"
 }
 
-type parseError struct{ s string }
-
-func (e *parseError) Error() string { return "not an integer: " + e.s }
-
-func joinMethods(methods []string) string {
-	result := ""
-	for i, m := range methods {
-		if i > 0 {
-			result += ", "
-		}
-		result += m
-	}
-	return result
+// HTMXHeader sets an HTMX response header (e.g. "HX-Trigger", "HX-Redirect")
+func HTMXHeader(w http.ResponseWriter, key, value string) {
+	w.Header().Set(key, value)
 }
 
-func Handler(w http.ResponseWriter, r *http.Request) {
+// HTMXHTML sends an HTML fragment response for HTMX
+func HTMXHTML(w http.ResponseWriter, html string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, html)
+}
 
-	// Optional: only allow GET
-	if !MethodGuard(w, r, http.MethodGet) {
-		return
+// HTMXTrigger sets the HX-Trigger header to fire a client-side event
+func HTMXTrigger(w http.ResponseWriter, event string) {
+	w.Header().Set("HX-Trigger", event)
+}
+
+// ---------------------------------------------------------------------------
+// State management
+// ---------------------------------------------------------------------------
+
+// State is a thread-safe key-value store for application state
+type State struct {
+	mu   sync.RWMutex
+	data map[string]interface{}
+}
+
+// NewState creates a new empty State
+func NewState() *State {
+	return &State{data: make(map[string]interface{})}
+}
+
+// Set stores a value
+func (s *State) Set(key string, value interface{}) {
+	s.mu.Lock()
+	s.data[key] = value
+	s.mu.Unlock()
+}
+
+// Get retrieves a value (returns nil if not found)
+func (s *State) Get(key string) interface{} {
+	s.mu.RLock()
+	v := s.data[key]
+	s.mu.RUnlock()
+	return v
+}
+
+// Delete removes a key
+func (s *State) Delete(key string) {
+	s.mu.Lock()
+	delete(s.data, key)
+	s.mu.Unlock()
+}
+
+// All returns a copy of all state data
+func (s *State) All() map[string]interface{} {
+	s.mu.RLock()
+	out := make(map[string]interface{}, len(s.data))
+	for k, v := range s.data {
+		out[k] = v
 	}
+	s.mu.RUnlock()
+	return out
+}
 
-	value := r.URL.Query().Get("q")
+// Global state instance (shared across all handlers)
+var globalState = NewState()
 
-	// ✅ use your helper
-	JSON(w, map[string]string{
-		"value": value,
-	})
+// SetState stores a value in the global state
+func SetState(key string, value interface{}) {
+	globalState.Set(key, value)
+}
+
+// GetState retrieves a value from the global state
+func GetState(key string) interface{} {
+	return globalState.Get(key)
+}
+
+// DeleteState removes a key from the global state
+func DeleteState(key string) {
+	globalState.Delete(key)
+}
+
+// ---------------------------------------------------------------------------
+// HTML helpers
+// ---------------------------------------------------------------------------
+
+// Escape sanitizes HTML output
+func Escape(s string) string {
+	return template.HTMLEscapeString(s)
+}
+
+// HTML sends raw HTML response
+func HTML(w http.ResponseWriter, html string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, html)
+}
+
+// ---------------------------------------------------------------------------
+// Cache helpers
+// ---------------------------------------------------------------------------
+
+// Cache wraps cache.Middleware for easy use as http middleware.
+func Cache(ttl ...time.Duration) func(http.HandlerFunc) http.HandlerFunc {
+	return cache.CacheMiddleware(ttl...)
+}
+
+// CacheSet stores a response in the global cache.
+func CacheSet(key string, statusCode int, headers http.Header, body []byte) {
+	cache.CacheSet(key, statusCode, headers, body)
+}
+
+// CacheGet retrieves a cached response.
+func CacheGet(key string) (int, http.Header, []byte, bool) {
+	return cache.CacheGet(key)
+}
+
+// CacheDelete removes a key from the global cache.
+func CacheDelete(key string) {
+	cache.CacheDelete(key)
+}
+
+// CacheClear clears the entire global cache.
+func CacheClear() {
+	cache.CacheClear()
 }

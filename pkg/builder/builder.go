@@ -96,26 +96,21 @@ func (b *Builder) Build() (*BuildResult, error) {
 }
 
 func (b *Builder) buildPage(route *router.Route) error {
-	// Create fake request with context
 	req := httptest.NewRequest("GET", route.Pattern, nil)
-	// Add params to context if needed
 	if len(route.Params) > 0 {
 		ctx := router.WithParams(req.Context(), make(map[string]string))
 		req = req.WithContext(ctx)
 	}
 	w := httptest.NewRecorder()
 
-	// ✅ OLD CODE: dev mode was left as true, causing renderer to expect live reload
-	// ✅ NEW CODE: force dev mode off during build
-	originalDevMode := b.cfg.DevMode
-	b.cfg.DevMode = false
-	defer func() { b.cfg.DevMode = originalDevMode }()
+	// Temporarily disable dev mode for static build
+	b.cfg.SetDevMode(false)
+	defer b.cfg.SetDevMode(true)
 
 	if err := b.renderer.RenderPage(w, req, route.FilePath, map[string]string{}); err != nil {
 		return err
 	}
 
-	// Determine output path
 	outPath := b.routeToOutputPath(route.Pattern)
 	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
 		return err
@@ -148,7 +143,10 @@ func (b *Builder) copyStatic() (int, error) {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		rel, _ := filepath.Rel(src, path)
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return fmt.Errorf("computing relative path: %w", err)
+		}
 		dest := filepath.Join(dst, rel)
 
 		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {

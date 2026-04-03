@@ -26,15 +26,22 @@ type HMRClient struct {
 	ch chan string
 }
 
+// routeEntry holds a custom handler registered before Start
+type routeEntry struct {
+	pattern string
+	handler http.HandlerFunc
+}
+
 // Server is the NexGo HTTP server
 type Server struct {
-	cfg        *config.NexGoConfig
-	router     *router.Router
-	renderer   *renderer.Renderer
-	watcher    *watcher.Watcher
-	httpServer *http.Server
-	hmrMu      sync.RWMutex
-	hmrClients map[*HMRClient]bool
+	cfg           *config.NexGoConfig
+	router        *router.Router
+	renderer      *renderer.Renderer
+	watcher       *watcher.Watcher
+	httpServer    *http.Server
+	hmrMu         sync.RWMutex
+	hmrClients    map[*HMRClient]bool
+	pendingRoutes []routeEntry
 }
 
 // New creates a NexGo server
@@ -61,12 +68,17 @@ func (s *Server) RegisterGlobalState(key string, value interface{}) {
 	s.renderer.RegisterGlobalState(key, value)
 }
 
+// RegisterRoute registers a custom HTTP handler for a path pattern.
+// Handlers registered here take priority over the catch-all page/API router.
+func (s *Server) RegisterRoute(pattern string, handler http.HandlerFunc) {
+	s.pendingRoutes = append(s.pendingRoutes, routeEntry{pattern, handler})
+}
+
 // Start boots the server
 func (s *Server) Start(ctx context.Context) error {
 	if err := s.router.Scan(); err != nil {
 		return fmt.Errorf("scanning routes: %w", err)
 	}
-	// ✅ Bind API handlers after scanning
 	s.router.BindAPIHandlers()
 
 	if err := s.renderer.LoadAll(); err != nil {
@@ -75,14 +87,20 @@ func (s *Server) Start(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 
-	// Static assets
+	// Apply middleware to custom routes
+	mainMW := middleware.Chain(
+		middleware.Recover,
+		middleware.Logger,
+		middleware.SecurityHeaders,
+	)
+	for _, re := range s.pendingRoutes {
+		mux.HandleFunc(re.pattern, mainMW(re.handler))
+	}
+
 	mux.Handle("/static/", http.StripPrefix("/static/",
 		http.FileServer(http.Dir(s.cfg.StaticAbsDir()))))
 
-	// NexGo runtime JS
 	mux.HandleFunc("/_nexgo/runtime.js", s.handleRuntime)
-
-	// Live rendering endpoint (works in all modes)
 	mux.HandleFunc("/_nexgo/live", s.handleLive)
 
 	if s.cfg.DevMode {
@@ -95,11 +113,9 @@ func (s *Server) Start(ctx context.Context) error {
 		s.watcher.Watch(s.cfg.AbsPath(s.cfg.LayoutsDir))
 		s.watcher.Watch(s.cfg.AbsPath(s.cfg.ComponentsDir))
 		s.watcher.OnChange(func(e watcher.Event) {
-			log.Printf("[NexGo] 🔄 %s", filepath.Base(e.Path))
+			log.Printf("[NexGo] %s", filepath.Base(e.Path))
 			s.reload()
 		})
-		// ✅ OLD CODE: watcher.Start() was missing here (caused crash)
-		// ✅ NEW CODE: start watcher BEFORE server listens
 		s.watcher.Start()
 	}
 
@@ -129,7 +145,12 @@ func (s *Server) Start(ctx context.Context) error {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.httpServer.Shutdown(shutCtx)
+		if err := s.httpServer.Shutdown(shutCtx); err != nil {
+			log.Printf("[NexGo] Shutdown error: %v", err)
+		}
+		if s.watcher != nil {
+			s.watcher.Stop()
+		}
 	}()
 
 	ln, err := net.Listen("tcp", addr)
@@ -139,12 +160,10 @@ func (s *Server) Start(ctx context.Context) error {
 	return s.httpServer.Serve(ln)
 }
 func (s *Server) handleRequest(w http.ResponseWriter, req *http.Request) {
-	// ✅ NEW CODE: Block dev routes in production
 	if !s.cfg.DevMode && strings.HasPrefix(req.URL.Path, "/_nexgo/") {
 		http.NotFound(w, req)
 		return
 	}
-	// OLD CODE: no protection, dev routes exposed in production
 
 	route, params := s.router.Match(req.URL.Path)
 	if route == nil {
@@ -166,15 +185,20 @@ func (s *Server) handleRequest(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 }
+
 func (s *Server) reload() {
 	if err := s.renderer.Reload(); err != nil {
 		log.Printf("[NexGo] Reload error: %v", err)
-		s.broadcastHMR(`{"type":"error","message":"` + err.Error() + `"}`)
+		msg, _ := json.Marshal(map[string]string{"type": "error", "message": err.Error()})
+		s.broadcastHMR(string(msg))
 		return
 	}
-	s.router.Scan()
+	if err := s.router.Scan(); err != nil {
+		log.Printf("[NexGo] Rescan error: %v", err)
+		return
+	}
 	s.broadcastHMR(`{"type":"reload"}`)
-	log.Println("[NexGo] ✅ Reloaded")
+	log.Println("[NexGo] Reloaded")
 }
 
 func (s *Server) handleHMR(w http.ResponseWriter, r *http.Request) {
@@ -242,22 +266,29 @@ func (s *Server) handleDevRoutes(w http.ResponseWriter, r *http.Request) {
 		if rt.Type == router.RouteTypeAPI {
 			t = "api"
 		}
-		list = append(list, info{rt.Pattern, rt.FilePath, t})
+		rel := strings.TrimPrefix(rt.FilePath, s.cfg.RootDir)
+		list = append(list, info{rt.Pattern, rel, t})
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(list)
+	if err := json.NewEncoder(w).Encode(list); err != nil {
+		log.Printf("[NexGo] JSON encode error: %v", err)
+	}
 }
 
 func (s *Server) handleDevTools(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Write([]byte(devtools.DevToolsHTML))
+	if _, err := w.Write([]byte(devtools.DevToolsHTML)); err != nil {
+		log.Printf("[NexGo] Write error: %v", err)
+	}
 }
 
 func (s *Server) handleManualReload(w http.ResponseWriter, r *http.Request) {
 	s.reload()
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
+	if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+		log.Printf("[NexGo] Write error: %v", err)
+	}
 }
 
 func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +315,9 @@ func (s *Server) handleRuntime(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 	}
-	w.Write([]byte(nexgoRuntime))
+	if _, err := w.Write([]byte(nexgoRuntime)); err != nil {
+		log.Printf("[NexGo] Write error: %v", err)
+	}
 }
 
 func (s *Server) printBanner(addr string) {
@@ -452,12 +485,14 @@ async _fetchAndReplaceContent() {
 },
 
 _reloadCSS(path) {
-  const links = document.querySelectorAll('link[rel="stylesheet"][href*="${path}"]');
+  const links = document.querySelectorAll('link[rel="stylesheet"]');
   links.forEach(link => {
-    const newLink = document.createElement('link');
-    newLink.rel = 'stylesheet';
-    newLink.href = link.href.split('?')[0] + '?v=' + Date.now();
-    link.parentNode.replaceChild(newLink, link);
+    if (link.href && link.href.includes(path)) {
+      const newLink = document.createElement('link');
+      newLink.rel = 'stylesheet';
+      newLink.href = link.href.split('?')[0] + '?v=' + Date.now();
+      link.parentNode.replaceChild(newLink, link);
+    }
   });
 }
   _initPrefetch(){
@@ -515,12 +550,42 @@ _reloadCSS(path) {
   init(){
     this._hydrateState();
     this.router._initLinks();
+    this._initForms();
     this._initHMR();
     this._initPrefetch();
     this._initLazy();
     this._initLive();
     window.addEventListener('popstate',()=>this.router._load(location.pathname));
+    document.addEventListener('nexgo:navigate',()=>this._initForms());
     document.dispatchEvent(new CustomEvent('nexgo:ready',{}));
+  },
+
+  _initForms(){
+    var self=this;
+    document.querySelectorAll('form[data-fragment]:not([data-ng-form])').forEach(function(f){
+      f.setAttribute('data-ng-form','1');
+      f.addEventListener('submit',function(e){e.preventDefault();});
+      var btn=f.querySelector('button[type=submit],input[type=submit]');
+      if(!btn)return;
+      btn.addEventListener('click',function(e){
+        e.preventDefault();
+        var actionUrl=f.getAttribute('action')||window.location.pathname;
+        var frag=f.getAttribute('data-fragment');
+        var tid=f.getAttribute('data-target');
+        var fd=new FormData(f);
+        f.reset();
+        fetch(actionUrl,{method:'POST',body:fd,headers:{'X-Requested-With':'XMLHttpRequest'}})
+          .then(function(){return fetch(frag);})
+          .then(function(r){return r.text();})
+          .then(function(html){
+            var el=document.getElementById(tid);
+            if(el){
+              el.innerHTML=html;
+              self._initForms();
+            }
+          });
+      });
+    });
   }
 };
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/salmanfaris22/nexgo/pkg/config"
+	"github.com/salmanfaris22/nexgo/pkg/worker"
 )
 
 // PageData is passed to every template
@@ -47,6 +48,113 @@ type PageData struct {
 // DataLoader is a function that loads data for a page (like getServerSideProps)
 type DataLoader func(req *http.Request, params map[string]string) (map[string]interface{}, error)
 
+// ParallelLoader loads multiple data sources concurrently and merges results.
+type ParallelLoader struct {
+	loaders map[string]DataLoader
+}
+
+// NewParallelLoader creates a new parallel data loader.
+func NewParallelLoader() *ParallelLoader {
+	return &ParallelLoader{loaders: make(map[string]DataLoader)}
+}
+
+// Add registers a named data loader.
+func (p *ParallelLoader) Add(name string, loader DataLoader) *ParallelLoader {
+	p.loaders[name] = loader
+	return p
+}
+
+// Execute runs all loaders concurrently and merges results.
+func (p *ParallelLoader) Execute(req *http.Request, params map[string]string) (map[string]interface{}, error) {
+	type result struct {
+		name string
+		data map[string]interface{}
+		err  error
+	}
+
+	results := worker.Map(4, keys(p.loaders), func(name string) result {
+		data, err := p.loaders[name](req, params)
+		return result{name, data, err}
+	})
+
+	merged := make(map[string]interface{})
+	for _, r := range results {
+		if r.err != nil {
+			return nil, fmt.Errorf("loader %q failed: %w", r.name, r.err)
+		}
+		for k, v := range r.data {
+			merged[k] = v
+		}
+	}
+	return merged, nil
+}
+
+func keys(m map[string]DataLoader) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// TemplateCache stores compiled templates for fast access.
+type TemplateCache struct {
+	mu         sync.RWMutex
+	templates  map[string]*template.Template
+	layouts    map[string]*template.Template
+	components map[string]*template.Template
+	loadedAt   time.Time
+}
+
+// NewTemplateCache creates an empty template cache.
+func NewTemplateCache() *TemplateCache {
+	return &TemplateCache{
+		templates:  make(map[string]*template.Template),
+		layouts:    make(map[string]*template.Template),
+		components: make(map[string]*template.Template),
+	}
+}
+
+// Get retrieves a template by name.
+func (c *TemplateCache) Get(name string) (*template.Template, bool) {
+	c.mu.RLock()
+	t, ok := c.templates[name]
+	c.mu.RUnlock()
+	return t, ok
+}
+
+// Set stores a compiled template.
+func (c *TemplateCache) Set(name string, tmpl *template.Template) {
+	c.mu.Lock()
+	c.templates[name] = tmpl
+	c.mu.Unlock()
+}
+
+// GetLayout retrieves a layout by name.
+func (c *TemplateCache) GetLayout(name string) (*template.Template, bool) {
+	c.mu.RLock()
+	t, ok := c.layouts[name]
+	c.mu.RUnlock()
+	return t, ok
+}
+
+// SetLayout stores a compiled layout.
+func (c *TemplateCache) SetLayout(name string, tmpl *template.Template) {
+	c.mu.Lock()
+	c.layouts[name] = tmpl
+	c.mu.Unlock()
+}
+
+// Clear resets the entire cache.
+func (c *TemplateCache) Clear() {
+	c.mu.Lock()
+	c.templates = make(map[string]*template.Template)
+	c.layouts = make(map[string]*template.Template)
+	c.components = make(map[string]*template.Template)
+	c.loadedAt = time.Now()
+	c.mu.Unlock()
+}
+
 // Renderer handles all template rendering
 type Renderer struct {
 	mu          sync.RWMutex
@@ -58,6 +166,7 @@ type Renderer struct {
 	globalState map[string]interface{}
 	funcMap     template.FuncMap
 	buildID     string
+	cache       *TemplateCache
 }
 
 // New creates a new Renderer
@@ -70,6 +179,7 @@ func New(cfg *config.NexGoConfig) *Renderer {
 		dataLoaders: make(map[string]DataLoader),
 		globalState: make(map[string]interface{}),
 		buildID:     fmt.Sprintf("%d", time.Now().Unix()),
+		cache:       NewTemplateCache(),
 	}
 	r.funcMap = r.buildFuncMap()
 	return r
@@ -112,13 +222,12 @@ func (r *Renderer) LoadAll() error {
 	return nil
 }
 
-func (r *Renderer) loadLayouts() error {
-	layoutsDir := r.cfg.AbsPath(r.cfg.LayoutsDir)
-	if _, err := os.Stat(layoutsDir); os.IsNotExist(err) {
+func (r *Renderer) loadTemplatesFromDir(dir string, targetMap map[string]*template.Template, typeName string) error {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil
 	}
 
-	return filepath.WalkDir(layoutsDir, func(path string, d os.DirEntry, err error) error {
+	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -126,7 +235,10 @@ func (r *Renderer) loadLayouts() error {
 		if ext != ".html" && ext != ".gohtml" && ext != ".tmpl" {
 			return nil
 		}
-		rel, _ := filepath.Rel(layoutsDir, path)
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return fmt.Errorf("computing relative path for %s: %w", path, err)
+		}
 		name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
 
 		data, err := os.ReadFile(path)
@@ -136,42 +248,19 @@ func (r *Renderer) loadLayouts() error {
 
 		tmpl, err := template.New(name).Funcs(r.funcMap).Parse(string(data))
 		if err != nil {
-			return fmt.Errorf("parsing layout %s: %w", name, err)
+			return fmt.Errorf("parsing %s %s: %w", typeName, name, err)
 		}
-		r.layouts[name] = tmpl
+		targetMap[name] = tmpl
 		return nil
 	})
 }
 
+func (r *Renderer) loadLayouts() error {
+	return r.loadTemplatesFromDir(r.cfg.AbsPath(r.cfg.LayoutsDir), r.layouts, "layout")
+}
+
 func (r *Renderer) loadComponents() error {
-	compDir := r.cfg.AbsPath(r.cfg.ComponentsDir)
-	if _, err := os.Stat(compDir); os.IsNotExist(err) {
-		return nil
-	}
-
-	return filepath.WalkDir(compDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		ext := filepath.Ext(path)
-		if ext != ".html" && ext != ".gohtml" && ext != ".tmpl" {
-			return nil
-		}
-		rel, _ := filepath.Rel(compDir, path)
-		name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		tmpl, err := template.New(name).Funcs(r.funcMap).Parse(string(data))
-		if err != nil {
-			return fmt.Errorf("parsing component %s: %w", name, err)
-		}
-		r.components[name] = tmpl
-		return nil
-	})
+	return r.loadTemplatesFromDir(r.cfg.AbsPath(r.cfg.ComponentsDir), r.components, "component")
 }
 
 func (r *Renderer) loadPages() error {
@@ -186,7 +275,10 @@ func (r *Renderer) loadPages() error {
 			return nil
 		}
 
-		rel, _ := filepath.Rel(pagesDir, path)
+		rel, err := filepath.Rel(pagesDir, path)
+		if err != nil {
+			return fmt.Errorf("computing relative path for %s: %w", path, err)
+		}
 		name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
 
 		if err := r.loadPage(name, path); err != nil {
@@ -205,11 +297,13 @@ func (r *Renderer) loadPage(name, path string) error {
 	// Create template with all components available
 	tmpl := template.New(name).Funcs(r.funcMap)
 
-	// Add all components
+	// Clone each component to avoid shared parse tree conflicts
 	for compName, comp := range r.components {
-		compClone, _ := comp.Clone()
-		_ = compClone
-		tmpl.AddParseTree(compName, comp.Tree)
+		cloned, err := comp.Clone()
+		if err != nil {
+			return fmt.Errorf("cloning component %s: %w", compName, err)
+		}
+		tmpl.AddParseTree(compName, cloned.Tree)
 	}
 
 	// Parse page template
@@ -226,11 +320,10 @@ func (r *Renderer) RenderPage(w http.ResponseWriter, req *http.Request, filePath
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	// Get template name from file path
 	pagesDir := r.cfg.PagesAbsDir()
 	rel, err := filepath.Rel(pagesDir, filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("computing relative path: %w", err)
 	}
 	ext := filepath.Ext(rel)
 	name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
@@ -248,7 +341,7 @@ func (r *Renderer) RenderPage(w http.ResponseWriter, req *http.Request, filePath
 		Query:        map[string][]string(req.URL.Query()),
 		Props:        make(map[string]interface{}),
 		State:        make(map[string]interface{}),
-		NexGoVersion: "1.0.0",
+		NexGoVersion: "1.0.5",
 		DevMode:      r.cfg.DevMode,
 		BuildID:      r.buildID,
 		Request:      req,
@@ -349,18 +442,22 @@ func (r *Renderer) buildFuncMap() template.FuncMap {
 		// JSON encode a value
 
 		"json": func(v interface{}) template.JS {
-			b, _ := json.Marshal(v)
+			b, err := json.Marshal(v)
+			if err != nil {
+				return template.JS("{}")
+			}
 			return template.JS(b)
 		},
-		// Safe HTML
 		"safeHTML": func(s string) template.HTML {
 			return template.HTML(s)
 		},
-		// 🔥 ADD THIS BLOCK
 		"dict": func(values ...interface{}) map[string]interface{} {
 			dict := make(map[string]interface{})
-			for i := 0; i < len(values); i += 2 {
-				key := values[i].(string)
+			for i := 0; i+1 < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					continue
+				}
 				dict[key] = values[i+1]
 			}
 			return dict
@@ -374,7 +471,10 @@ func (r *Renderer) buildFuncMap() template.FuncMap {
 		},
 		// State hydration script
 		"renderState": func(state map[string]interface{}) template.HTML {
-			b, _ := json.Marshal(state)
+			b, err := json.Marshal(state)
+			if err != nil {
+				return template.HTML("")
+			}
 			return template.HTML(fmt.Sprintf("<script id=\"__nexgo_state\" type=\"application/json\">%s</script>", string(b)))
 		},
 		// Link to a page
@@ -423,6 +523,141 @@ func (r *Renderer) buildFuncMap() template.FuncMap {
 			}
 			return val
 		},
+	}
+}
+
+// LoadParallel compiles all templates using worker pool for parallel processing.
+func (r *Renderer) LoadParallel() error {
+	r.mu.Lock()
+	r.templates = make(map[string]*template.Template)
+	r.layouts = make(map[string]*template.Template)
+	r.components = make(map[string]*template.Template)
+	r.mu.Unlock()
+
+	var errs []error
+
+	// Load layouts in parallel
+	layoutFiles := r.collectFiles(r.cfg.AbsPath(r.cfg.LayoutsDir), "layout")
+	if len(layoutFiles) > 0 {
+		errs = append(errs, worker.Run(4, layoutFiles)...)
+	}
+
+	// Load components in parallel
+	compFiles := r.collectFiles(r.cfg.AbsPath(r.cfg.ComponentsDir), "component")
+	if len(compFiles) > 0 {
+		errs = append(errs, worker.Run(4, compFiles)...)
+	}
+
+	// Load pages in parallel
+	pageFiles := r.collectPageFiles()
+	if len(pageFiles) > 0 {
+		errs = append(errs, worker.Run(4, pageFiles)...)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("loading templates: %v", errs[0])
+	}
+	return nil
+}
+
+func (r *Renderer) collectFiles(dir string, typeName string) []worker.Task {
+	var tasks []worker.Task
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return tasks
+	}
+	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(path)
+		if ext != ".html" && ext != ".gohtml" && ext != ".tmpl" {
+			return nil
+		}
+		rel, _ := filepath.Rel(dir, path)
+		name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
+		tasks = append(tasks, func() error {
+			return r.loadAndCacheTemplate(path, name, typeName)
+		})
+		return nil
+	})
+	return tasks
+}
+
+func (r *Renderer) collectPageFiles() []worker.Task {
+	var tasks []worker.Task
+	pagesDir := r.cfg.PagesAbsDir()
+	filepath.WalkDir(pagesDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(path)
+		if ext != ".html" && ext != ".gohtml" && ext != ".tmpl" {
+			return nil
+		}
+		rel, _ := filepath.Rel(pagesDir, path)
+		name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
+		tasks = append(tasks, func() error {
+			return r.loadAndCachePage(path, name)
+		})
+		return nil
+	})
+	return tasks
+}
+
+func (r *Renderer) loadAndCacheTemplate(path, name, typeName string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	tmpl, err := template.New(name).Funcs(r.funcMap).Parse(string(data))
+	if err != nil {
+		return fmt.Errorf("parsing %s %s: %w", typeName, name, err)
+	}
+	r.mu.Lock()
+	if typeName == "component" {
+		r.components[name] = tmpl
+	} else {
+		r.layouts[name] = tmpl
+	}
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *Renderer) loadAndCachePage(path, name string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	tmpl := template.New(name).Funcs(r.funcMap)
+	r.mu.RLock()
+	for compName, comp := range r.components {
+		cloned, err := comp.Clone()
+		if err != nil {
+			r.mu.RUnlock()
+			return fmt.Errorf("cloning component %s: %w", compName, err)
+		}
+		tmpl.AddParseTree(compName, cloned.Tree)
+	}
+	r.mu.RUnlock()
+	if _, err := tmpl.Parse(string(data)); err != nil {
+		return fmt.Errorf("parsing page %s: %w", name, err)
+	}
+	r.cache.Set(name, tmpl)
+	r.mu.Lock()
+	r.templates[name] = tmpl
+	r.mu.Unlock()
+	return nil
+}
+
+// CacheInfo returns template cache statistics.
+func (r *Renderer) CacheInfo() map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return map[string]interface{}{
+		"templates":  len(r.templates),
+		"layouts":    len(r.layouts),
+		"components": len(r.components),
+		"loaded_at":  r.cache.loadedAt,
 	}
 }
 

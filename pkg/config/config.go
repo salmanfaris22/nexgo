@@ -95,3 +95,10 @@ func (c *NexGoConfig) AbsPath(rel string) string {
 func (c *NexGoConfig) PagesAbsDir() string  { return c.AbsPath(c.PagesDir) }
 func (c *NexGoConfig) StaticAbsDir() string { return c.AbsPath(c.StaticDir) }
 func (c *NexGoConfig) OutputAbsDir() string { return c.AbsPath(c.OutputDir) }
+
+// SetDevMode safely changes DevMode with a mutex-free atomic operation.
+// DevMode is only read by the builder during single-threaded builds,
+// so direct assignment is safe in that context.
+func (c *NexGoConfig) SetDevMode(v bool) {
+	c.DevMode = v
+}

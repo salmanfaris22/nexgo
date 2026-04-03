@@ -53,12 +53,13 @@ func runDev(args []string) {
 	}
 	cfg.DevMode = true
 	if port := getFlag(args, "--port", "-p"); port != "" {
-		fmt.Sscan(port, &cfg.Port)
+		if _, err := fmt.Sscan(port, &cfg.Port); err != nil {
+			fatal("Invalid port number: %s", port)
+		}
 	}
-	fmt.Printf("[NexGo] 🚀 Dev server → http://%s:%d\n", cfg.Host, cfg.Port)
-	fmt.Println("[NexGo] 🔥 Hot reload enabled. Press Ctrl+C to stop.")
+	fmt.Printf("[NexGo] Dev server -> http://%s:%d\n", cfg.Host, cfg.Port)
+	fmt.Println("[NexGo] Hot reload enabled. Press Ctrl+C to stop.")
 
-	// ✅ THIS IS THE FIX
 	srv, err := server.New(cfg)
 	if err != nil {
 		fatal("Server init failed: %v", err)
@@ -70,7 +71,6 @@ func runDev(args []string) {
 	if err := srv.Start(ctx); err != nil {
 		fatal("Server failed: %v", err)
 	}
-	// select {}
 }
 
 func runBuild(args []string) {
@@ -100,18 +100,20 @@ func runStart(args []string) {
 	cfg.DevMode = false
 
 	if port := getFlag(args, "--port", "-p"); port != "" {
-		fmt.Sscan(port, &cfg.Port)
+		if _, err := fmt.Sscan(port, &cfg.Port); err != nil {
+			fatal("Invalid port number: %s", port)
+		}
 	}
 
-	fmt.Printf("[NexGo] ▶ Production server → http://%s:%d\n", cfg.Host, cfg.Port)
+	fmt.Printf("[NexGo] Production server -> http://%s:%d\n", cfg.Host, cfg.Port)
 
-	// ✅ START SERVER
 	srv, err := server.New(cfg)
 	if err != nil {
 		fatal("Server init failed: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
 	if err := srv.Start(ctx); err != nil {
 		fatal("Server failed: %v", err)
@@ -157,11 +159,17 @@ func runCreate(args []string) {
 func getRootDir(args []string) string {
 	for _, arg := range args {
 		if !strings.HasPrefix(arg, "-") {
-			abs, _ := filepath.Abs(arg)
+			abs, err := filepath.Abs(arg)
+			if err != nil {
+				fatal("Invalid path: %s", arg)
+			}
 			return abs
 		}
 	}
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		fatal("Cannot determine working directory: %v", err)
+	}
 	return cwd
 }
 

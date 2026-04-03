@@ -1,6 +1,7 @@
 package renderer
 
 import (
+	"encoding/json"
 	"html/template"
 	"testing"
 
@@ -21,11 +22,11 @@ func TestStateManagement(t *testing.T) {
 	// Test if global state is injected into PageData
 	// We need to mock a template to test RenderPage
 	// But let's just check the internal injection logic
-	
+
 	pageData := &PageData{
 		State: make(map[string]interface{}),
 	}
-	
+
 	// Copy global state (mimic RenderPage logic)
 	for k, v := range r.globalState {
 		pageData.State[k] = v
@@ -42,16 +43,28 @@ func TestStateManagement(t *testing.T) {
 func TestRenderState(t *testing.T) {
 	cfg := &config.NexGoConfig{}
 	r := New(cfg)
-	
+
 	state := map[string]interface{}{
 		"foo": "bar",
 		"num": 42,
 	}
-	
+
 	rendered := r.funcMap["renderState"].(func(map[string]interface{}) template.HTML)(state)
-	
-	expected := `<script id="__nexgo_state" type="application/json">{"foo":"bar","num":42}</script>`
-	if string(rendered) != expected {
-		t.Errorf("Expected %s, got %s", expected, string(rendered))
+
+	// Parse the JSON inside the script tag to avoid key-order issues
+	start := len(`<script id="__nexgo_state" type="application/json">`)
+	end := len(rendered) - len(`</script>`)
+	jsonStr := rendered[start:end]
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
+		t.Fatalf("Invalid JSON in rendered state: %v", err)
+	}
+
+	if parsed["foo"] != "bar" {
+		t.Errorf("Expected foo=bar, got %v", parsed["foo"])
+	}
+	if parsed["num"] != float64(42) {
+		t.Errorf("Expected num=42, got %v", parsed["num"])
 	}
 }

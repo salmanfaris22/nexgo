@@ -1,43 +1,22 @@
+# NexGo
 
-<p align="center">
-  <pre align="center">
-  ███╗   ██╗███████╗██╗  ██╗ ██████╗  ██████╗ 
+```
+  ███╗   ██╗███████╗██╗  ██╗ ██████╗  ██████╗
   ████╗  ██║██╔════╝╚██╗██╔╝██╔════╝ ██╔═══██╗
   ██╔██╗ ██║█████╗   ╚███╔╝ ██║  ███╗██║   ██║
   ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║██║   ██║
   ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝╚██████╔╝
   ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝
-  </pre>
-</p>
+```
 
+**The Go-Powered Web Framework Inspired by Next.js**
 
-INSTALL CODE go install github.com/salmanfaris22/nexgo/cmd/nexgo@v1.0.5
+File-based routing | Server-side rendering | Hot reload | API routes | Single binary deploy
 
-✅ FIX PATH (VERY IMPORTANT)
-
-Run:
-
-export PATH=$PATH:$(go env GOPATH)/bin
-Make it permanent (recommended)
-echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.bashrc
-source ~/.bashrc
-🔁 Now test again
-nexgo
-
-
-
-<h3 align="center">The Go-Powered Web Framework Inspired by Next.js</h3>
-
-<p align="center">
-  <strong>File-based routing | Server-side rendering | Hot reload | API routes | Single binary deploy</strong>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go 1.22+">
-  <img src="https://img.shields.io/badge/Version-1.0.0-7b2ff7?style=flat-square" alt="Version 1.0.0">
-  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
-  <img src="https://img.shields.io/badge/Zero-Dependencies-00d2ff?style=flat-square" alt="Zero Dependencies">
-</p>
+[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
+[![Version](https://img.shields.io/badge/Version-1.0.5-7b2ff7?style=flat-square)](#)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](#)
+[![Zero Dependencies](https://img.shields.io/badge/Zero-Dependencies-00d2ff?style=flat-square)](#)
 
 ---
 
@@ -51,39 +30,19 @@ NexGo brings the **Next.js developer experience** to the **Go ecosystem**. Build
 
 ---
 
-## Table of Contents
-
-- [Quick Start](#quick-start)
-- [CLI Commands](#cli-commands)
-- [Project Structure](#project-structure)
-- [Architecture](#architecture)
-- [Core Concepts](#core-concepts)
-  - [File-Based Routing](#file-based-routing)
-  - [Layouts & Components](#layouts--components)
-  - [Template Engine](#template-engine)
-  - [API Routes](#api-routes)
-  - [Data Loaders](#data-loaders)
-  - [Middleware](#middleware)
-  - [Static Files](#static-files)
-- [Development Mode](#development-mode)
-  - [Hot Reload (HMR)](#hot-reload-hmr)
-  - [DevTools Panel](#devtools-panel)
-  - [Dev Endpoints](#dev-endpoints)
-- [Building for Production](#building-for-production)
-- [Configuration](#configuration)
-- [Template Functions Reference](#template-functions-reference)
-- [API Helpers Reference](#api-helpers-reference)
-- [Technology Stack](#technology-stack)
-- [How It Works Internally](#how-it-works-internally)
-
----
-
 ## Quick Start
 
 ### Install
 
 ```bash
-go install github.com/nexgo/nexgo/cmd/nexgo@latest
+go install github.com/salmanfaris22/nexgo/cmd/nexgo@v1.0.5
+```
+
+Add to PATH:
+
+```bash
+export PATH=$PATH:$(go env GOPATH)/bin
+echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.bashrc
 ```
 
 ### Create a New Project
@@ -120,24 +79,15 @@ Open [http://localhost:3000](http://localhost:3000) -- your app is live with hot
 ### Examples
 
 ```bash
-# Create project
 nexgo create blog-app
-
-# Development with custom port
 nexgo dev --port 8080
-
-# Build static output
 nexgo build
-
-# Production server
 nexgo start --port 4000
 ```
 
 ---
 
 ## Project Structure
-
-Running `nexgo create my-app` generates this structure:
 
 ```
 my-app/
@@ -146,13 +96,13 @@ my-app/
 ├── go.mod                   # Go module definition
 │
 ├── pages/                   # File-based routes (auto-discovered)
-│   ├── index.html           #   → /
-│   ├── about.html           #   → /about
+│   ├── index.html           #   -> /
+│   ├── about.html           #   -> /about
 │   ├── blog/
-│   │   ├── index.html       #   → /blog
-│   │   └── [slug].html      #   → /blog/:slug (dynamic)
+│   │   ├── index.html       #   -> /blog
+│   │   └── [slug].html      #   -> /blog/:slug (dynamic)
 │   └── api/
-│       └── hello.go         #   → /api/hello (API endpoint)
+│       └── hello.go         #   -> /api/hello (API endpoint)
 │
 ├── layouts/                 # Page layouts (wraps page content)
 │   └── default.html         # Default layout for all pages
@@ -167,86 +117,6 @@ my-app/
 └── .nexgo/                  # Build output (generated)
     └── out/                 # Static site output
 ```
-
----
-
-## Architecture
-
-### High-Level Overview
-
-```
-                    ┌──────────────────────────────────────────────┐
-                    │                  CLI (cmd/nexgo)              │
-                    │         create | dev | build | start          │
-                    └───────────┬──────────────┬───────────────────┘
-                                │              │
-                    ┌───────────▼──────┐  ┌────▼──────────────┐
-                    │     Server       │  │     Builder        │
-                    │  (pkg/server)    │  │  (pkg/builder)     │
-                    │  HTTP + HMR      │  │  Static Generation │
-                    └──┬───┬───┬───┬──┘  └──┬───┬────────────┘
-                       │   │   │   │        │   │
-          ┌────────────┘   │   │   └────┐   │   │
-          ▼                ▼   ▼        ▼   ▼   ▼
-   ┌──────────┐   ┌────────────────┐  ┌──────────┐
-   │  Router   │   │   Renderer     │  │  Config   │
-   │(pkg/router)│  │ (pkg/renderer) │  │(pkg/config)│
-   │File-based │   │ Template Engine│  │  JSON     │
-   │ matching  │   │ + Layouts      │  │  loader   │
-   └──────────┘   └────────────────┘  └──────────┘
-          │
-   ┌──────┴──────────────┐
-   ▼                     ▼
-┌──────────┐     ┌──────────────┐
-│Middleware │     │   Watcher     │
-│(pkg/      │     │ (pkg/watcher) │
-│middleware)│     │  File polling  │
-└──────────┘     └──────────────┘
-                         │
-                  ┌──────▼──────┐
-                  │   DevTools   │
-                  │(pkg/devtools)│
-                  │  Debug panel │
-                  └─────────────┘
-```
-
-### Package Dependency Graph
-
-```
-cmd/nexgo/main.go
-├── pkg/config           # Configuration loading
-└── pkg/builder          # Static site generation
-    ├── pkg/config
-    ├── pkg/router       # Route discovery
-    └── pkg/renderer     # Template rendering
-
-pkg/server               # HTTP server
-├── pkg/config
-├── pkg/router
-├── pkg/renderer
-├── pkg/middleware        # Request middleware
-├── pkg/watcher          # File change detection
-└── pkg/devtools         # Dev panel UI
-
-pkg/api                  # API route helpers (standalone)
-```
-
-### Source Files
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `cmd/nexgo/main.go` | ~359 | CLI entry point, project scaffolding |
-| `pkg/config/config.go` | ~98 | Config loading with defaults |
-| `pkg/router/router.go` | ~324 | File-based route matching |
-| `pkg/router/context.go` | ~31 | Request context helpers |
-| `pkg/renderer/renderer.go` | ~430 | Template engine with layouts |
-| `pkg/server/server.go` | ~378 | HTTP server, HMR, runtime JS |
-| `pkg/middleware/middleware.go` | ~138 | Logger, CORS, Gzip, Security |
-| `pkg/watcher/watcher.go` | ~154 | Polling-based file watcher |
-| `pkg/builder/builder.go` | ~160 | Static site generation |
-| `pkg/devtools/penel.go` | ~691 | DevTools panel UI |
-| `pkg/api/helpers.go` | ~176 | JSON response, routing helpers |
-| **Total** | **~3,130** | |
 
 ---
 
@@ -272,10 +142,10 @@ Use `[param]` syntax for dynamic segments:
 ```
 pages/
 ├── users/
-│   ├── [id].html          → /users/123
+│   ├── [id].html          -> /users/123
 │   └── [id]/
-│       └── posts.html     → /users/123/posts
-└── [...catchall].html     → /any/path/here
+│       └── posts.html     -> /users/123/posts
+└── [...catchall].html     -> /any/path/here
 ```
 
 Access parameters in templates:
@@ -288,9 +158,9 @@ Access parameters in templates:
 
 Routes are matched by specificity (higher priority first):
 
-1. Exact static routes (`/about`)
-2. Dynamic segments (`/blog/[slug]`)
-3. Catch-all routes (`/[...rest]`)
+1. Exact static routes (`/about`) -- Priority 100
+2. Dynamic segments (`/blog/[slug]`) -- Priority 50
+3. Catch-all routes (`/[...rest]`) -- Priority 10
 
 ---
 
@@ -325,8 +195,8 @@ Layouts wrap page content. Place them in the `layouts/` directory:
 
 ```
 pages/blog/my-post.html
-  → looks for layouts/blog.html
-  → falls back to layouts/default.html
+  -> looks for layouts/blog.html
+  -> falls back to layouts/default.html
 ```
 
 #### Components
@@ -357,39 +227,22 @@ NexGo uses Go's `html/template` package. Every page template receives a `PageDat
 type PageData struct {
     Title        string                 // Page title
     Description  string                 // Meta description
-    Keywords     string                 // Meta keywords
-    OGImage      string                 // Open Graph image
-    Canonical    string                 // Canonical URL
     Path         string                 // Current URL path
     Params       map[string]string      // Route parameters
-    Query        map[string]string      // Query string values
+    Query        map[string][]string    // Query string values
     Props        map[string]interface{} // Data from DataLoader
+    State        map[string]interface{} // Global state
     NexGoVersion string                 // Framework version
     DevMode      bool                   // Development mode flag
     BuildID      string                 // Cache-busting ID
 }
 ```
 
-#### Usage in Templates
-
-```html
-<h1>{{ .Title }}</h1>
-<p>You are at: {{ .Path }}</p>
-
-{{ if .DevMode }}
-  <p>Running in development mode</p>
-{{ end }}
-
-{{ range $key, $value := .Params }}
-  <p>{{ $key }}: {{ $value }}</p>
-{{ end }}
-```
-
 ---
 
 ### API Routes
 
-Create Go files in `pages/api/` to build REST endpoints. Handlers register themselves via `init()`:
+Create Go files in `pages/api/` to build REST endpoints:
 
 ```go
 // pages/api/hello.go
@@ -397,8 +250,8 @@ package api
 
 import (
     "net/http"
-    "github.com/nexgo/nexgo/pkg/api"
-    "github.com/nexgo/nexgo/pkg/router"
+    "github.com/salmanfaris22/nexgo/pkg/api"
+    "github.com/salmanfaris22/nexgo/pkg/router"
 )
 
 func init() {
@@ -456,11 +309,42 @@ srv.RegisterDataLoader("/blog/[slug]", func(req *http.Request, params map[string
 Access in templates via `.Props`:
 
 ```html
-<!-- pages/blog/[slug].html -->
 <article>
   <h1>{{ .Props.post.Title }}</h1>
   <p>{{ .Props.post.Body }}</p>
 </article>
+```
+
+---
+
+### State Management
+
+NexGo provides server-side state injection and client-side hydration:
+
+```go
+// Server-side: register global state
+srv.RegisterGlobalState("user", map[string]interface{}{"name": "John"})
+```
+
+In templates, render state for client hydration:
+
+```html
+{{ renderState .State }}
+```
+
+Client-side access:
+
+```javascript
+// Read state
+const user = NexGo.getState('user');
+
+// Update state
+NexGo.setState('counter', 1);
+
+// Subscribe to changes
+NexGo.subscribe((state) => {
+  console.log('State changed:', state);
+});
 ```
 
 ---
@@ -470,7 +354,7 @@ Access in templates via `.Props`:
 NexGo includes built-in middleware applied in this order:
 
 ```
-Request → Recover → Logger → SecurityHeaders → [Gzip] → Handler → Response
+Request -> Recover -> Logger -> SecurityHeaders -> [Gzip] -> Handler -> Response
 ```
 
 | Middleware | Description |
@@ -479,7 +363,7 @@ Request → Recover → Logger → SecurityHeaders → [Gzip] → Handler → Re
 | `Logger` | Logs method, path, status, and duration |
 | `SecurityHeaders` | Adds `X-Content-Type-Options`, `X-Frame-Options`, etc. |
 | `Gzip` | Compresses responses (optional, enabled via config) |
-| `CORS(origins...)` | Configurable CORS headers |
+| `CORS(origins...)` | Configurable CORS headers (pass origins to enable) |
 | `Cache(maxAge)` | Sets `Cache-Control` headers |
 
 #### Chaining Middleware
@@ -500,9 +384,9 @@ Place files in `static/` and they're served at `/static/`:
 
 ```
 static/
-├── css/global.css    → /static/css/global.css
-├── js/app.js         → /static/js/app.js
-└── images/logo.png   → /static/images/logo.png
+├── css/global.css    -> /static/css/global.css
+├── js/app.js         -> /static/js/app.js
+└── images/logo.png   -> /static/images/logo.png
 ```
 
 Use the `asset` template function for cache-busted URLs:
@@ -517,40 +401,34 @@ Use the `asset` template function for cache-busted URLs:
 
 ### Hot Reload (HMR)
 
-Run `nexgo dev` to start the dev server with **automatic hot reload**.
+Run `nexgo dev` to start the dev server with automatic hot reload.
 
 ```bash
 nexgo dev
-# [NexGo] Dev server → http://localhost:3000
+# [NexGo] Dev server -> http://localhost:3000
 # [NexGo] Hot reload enabled. Press Ctrl+C to stop.
 ```
 
 **How it works:**
 
-1. A **file watcher** polls `pages/`, `layouts/`, and `components/` every **500ms**
-2. When a file changes, the server **recompiles all templates** and **re-scans routes**
-3. A reload message is broadcast to all connected browsers via **Server-Sent Events** (SSE)
-4. The browser receives the event and **automatically reloads the page**
-
-**Keyboard shortcuts:**
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+C` | Stop the dev server |
+1. A file watcher polls `pages/`, `layouts/`, and `components/` every 500ms
+2. When a file changes, the server recompiles all templates and re-scans routes
+3. A reload message is broadcast to all connected browsers via SSE
+4. The browser fetches updated content and replaces it without full page reload
 
 ### DevTools Panel
 
-In dev mode, visit [http://localhost:3000/_nexgo/devtools](http://localhost:3000/_nexgo/devtools) for a built-in debug panel:
+In dev mode, visit `http://localhost:3000/_nexgo/devtools` for a built-in debug panel:
 
 | Tab | What it shows |
 |-----|---------------|
 | **Routes** | All discovered routes with type badges (PAGE / API) |
 | **Requests** | Live request log with method, status, path, duration |
 | **Logs** | Server logs, HMR events, errors |
-| **Performance** | Total requests, avg response time, error rate, active routes |
+| **Colors** | Theme customization with CSS variable output |
+| **SEO** | Meta tag generator with Google SERP preview |
+| **Performance** | Total requests, avg response time, error rate |
 | **Config** | Current server and build configuration |
-
-The panel includes a **Reload** button and an **HMR connection indicator** (green = connected, red = reconnecting).
 
 ### Dev Endpoints
 
@@ -581,37 +459,17 @@ This will:
 3. Copy static assets
 4. Output everything to `.nexgo/out/`
 
-**Output structure:**
-
-```
-.nexgo/out/
-├── index.html
-├── about/
-│   └── index.html
-├── blog/
-│   └── index.html
-└── static/
-    ├── css/global.css
-    └── js/
-```
-
 ### Production Server
 
 ```bash
 nexgo start
-# [NexGo] Production server → http://localhost:3000
-```
-
-Or with a custom port:
-
-```bash
 nexgo start --port 4000
 ```
 
 Production mode disables:
 - Hot reload / HMR
 - DevTools panel
-- Debug endpoints
+- Debug endpoints (returns 404)
 
 Production mode enables:
 - Gzip compression (if configured)
@@ -623,14 +481,9 @@ Production mode enables:
 NexGo compiles to a **single binary** -- deploy anywhere Go runs:
 
 ```bash
-# Build the binary
 go build -o myapp ./main.go
-
-# Deploy -- just copy the binary + pages/ + static/ + layouts/
 scp myapp server:/opt/myapp/
 scp -r pages/ layouts/ static/ nexgo.config.json server:/opt/myapp/
-
-# Run
 ssh server '/opt/myapp/myapp'
 ```
 
@@ -652,12 +505,7 @@ Create `nexgo.config.json` in your project root:
   "outputDir": ".nexgo/out",
   "hotReload": true,
   "compression": true,
-  "minify": true,
-  "sourceMap": false,
-  "baseURL": "",
-  "trailingSlash": false,
-  "defaultRenderMode": "ssr",
-  "cacheControl": "public, max-age=31536000"
+  "minify": true
 }
 ```
 
@@ -674,17 +522,10 @@ Create `nexgo.config.json` in your project root:
 | `hotReload` | bool | `true` | Enable HMR in dev mode |
 | `compression` | bool | `true` | Enable gzip compression |
 | `minify` | bool | `true` | Minify HTML output |
-| `sourceMap` | bool | `false` | Generate source maps |
-| `baseURL` | string | `""` | Base URL for links |
-| `trailingSlash` | bool | `false` | Add trailing slashes to routes |
-| `defaultRenderMode` | string | `"ssr"` | Default render mode: `ssr`, `ssg`, or `spa` |
-| `cacheControl` | string | `"public, max-age=31536000"` | Cache-Control header value |
 
 ---
 
 ## Template Functions Reference
-
-These functions are available in all templates (pages, layouts, components):
 
 ### String Functions
 
@@ -719,12 +560,13 @@ These functions are available in all templates (pages, layouts, components):
 | `link` | `{{ link "/about" }}` | Link to a page |
 | `times` | `{{ range times 5 }}...{{ end }}` | Iterate n times |
 | `default` | `{{ default "fallback" .Value }}` | Default if nil/empty |
+| `renderState` | `{{ renderState .State }}` | Inject state hydration script |
 
 ---
 
 ## API Helpers Reference
 
-Import `github.com/nexgo/nexgo/pkg/api` in your API route handlers:
+Import `github.com/salmanfaris22/nexgo/pkg/api` in your API route handlers:
 
 ### Response Helpers
 
@@ -749,20 +591,19 @@ api.InternalError(w, err)        // 500 (logs the error)
 ```go
 var input CreateUserInput
 if !api.Decode(w, r, &input) {
-    return // Decode writes 400 on failure
+    return
 }
-// input is now populated
 ```
 
-- Enforces **4MB** body size limit
+- Enforces 4MB body size limit
 - Disallows unknown JSON fields
-- Returns `false` and writes error response on failure
+- Returns false and writes 400 on failure
 
 ### Method Guard
 
 ```go
 if !api.MethodGuard(w, r, "GET", "POST") {
-    return // Writes 405 with Allow header
+    return
 }
 ```
 
@@ -801,155 +642,21 @@ page, limit := api.Paginate(r) // from ?page=2&limit=10
 
 ---
 
-## How It Works Internally
+## Source Files
 
-### Development Server Flow
-
-```
-nexgo dev
-    │
-    ▼
-config.Load(".")            ← reads nexgo.config.json
-    │
-    ▼
-server.New(cfg)              ← creates Server instance
-    │
-    ▼
-server.Start(ctx)
-    ├── router.Scan()        ← walks pages/ dir, builds route table
-    ├── renderer.LoadAll()   ← compiles layouts, components, pages
-    ├── watcher.Start()      ← starts polling pages/, layouts/, components/
-    └── http.ListenAndServe  ← binds to :3000
-         │
-         ├── GET /about
-         │   ├── router.Match("/about")     → pages/about.html
-         │   ├── renderer.RenderPage()      → execute template
-         │   │   ├── dataLoader (if any)    → fetch server data
-         │   │   ├── render page template   → HTML fragment
-         │   │   └── wrap in layout         → full HTML document
-         │   └── write response
-         │
-         ├── GET /api/hello
-         │   ├── router.Match("/api/hello") → RouteTypeAPI
-         │   └── execute handler(w, r)      → JSON response
-         │
-         └── File change detected
-             ├── renderer.Reload()          → recompile templates
-             ├── router.Scan()              → rediscover routes
-             └── broadcastHMR()             → SSE → browser reloads
-```
-
-### Static Build Flow
-
-```
-nexgo build
-    │
-    ▼
-config.Load(".")
-    │
-    ▼
-builder.New(cfg)
-    │
-    ▼
-builder.Build()
-    ├── router.Scan()                ← discover all routes
-    ├── renderer.LoadAll()           ← compile templates
-    ├── for each page route:
-    │   ├── create fake http.Request
-    │   ├── renderer.RenderPage()    → HTML string
-    │   └── write to .nexgo/out/     → /about → about/index.html
-    ├── copyStatic()                 → static/ → .nexgo/out/static/
-    └── return BuildResult           → pages built, files copied, duration
-```
-
-### Client-Side Runtime
-
-The embedded JavaScript runtime (`/_nexgo/runtime.js`) provides:
-
-| Feature | How It Works |
-|---------|-------------|
-| **Client Router** | Intercepts `<a>` clicks, uses `history.pushState`, fetches new content via `fetch()`, updates `#nexgo-root` |
-| **HMR Client** | Connects to `/_nexgo/hmr` SSE stream, reloads page on `{"type":"reload"}` message |
-| **Prefetch** | On link hover, injects `<link rel="prefetch">` for faster navigation |
-| **Lazy Loading** | Uses `IntersectionObserver` for images with `data-src` attribute |
-
-The runtime dispatches a `nexgo:ready` event on DOM load and is available globally as `window.NexGo`.
-
----
-
-## Render Modes
-
-| Mode | Description | When to Use |
-|------|-------------|-------------|
-| **SSR** (Server-Side Rendering) | Renders HTML on every request | Dynamic content, personalized pages |
-| **SSG** (Static Site Generation) | Pre-renders HTML at build time | Blogs, docs, marketing pages |
-| **SPA** (Single Page Application) | Client-side rendering only | Highly interactive UIs |
-
-Set the default in `nexgo.config.json`:
-
-```json
-{
-  "defaultRenderMode": "ssr"
-}
-```
-
----
-
-## Example: Full Blog Setup
-
-```
-my-blog/
-├── main.go
-├── nexgo.config.json
-├── pages/
-│   ├── index.html
-│   ├── blog/
-│   │   ├── index.html         # Blog listing
-│   │   └── [slug].html        # Individual post
-│   └── api/
-│       └── posts.go           # Posts API
-├── layouts/
-│   └── default.html
-├── components/
-│   └── post-card.html
-└── static/
-    └── css/global.css
-```
-
-**Register a data loader** in `main.go`:
-
-```go
-srv.RegisterDataLoader("/blog/[slug]", func(req *http.Request, params map[string]string) (map[string]interface{}, error) {
-    post := getPostBySlug(params["slug"])
-    return map[string]interface{}{"post": post}, nil
-})
-```
-
-**Template** (`pages/blog/[slug].html`):
-
-```html
-<article class="page-content">
-  <h1>{{ .Props.post.Title }}</h1>
-  <time>{{ .Props.post.Date }}</time>
-  {{ safeHTML .Props.post.Content }}
-</article>
-```
-
-**API route** (`pages/api/posts.go`):
-
-```go
-func init() { router.RegisterAPI("/api/posts", Posts) }
-
-func Posts(w http.ResponseWriter, r *http.Request) {
-    api.Route(w, r, api.Methods{
-        "GET": func(w http.ResponseWriter, r *http.Request) {
-            page, limit := api.Paginate(r)
-            posts := getAllPosts(page, limit)
-            api.JSON(w, posts)
-        },
-    })
-}
-```
+| File | Purpose |
+|------|---------|
+| `cmd/nexgo/main.go` | CLI entry point, project scaffolding |
+| `pkg/config/config.go` | Config loading with defaults |
+| `pkg/router/router.go` | File-based route matching |
+| `pkg/router/context.go` | Request context helpers |
+| `pkg/renderer/renderer.go` | Template engine with layouts |
+| `pkg/server/server.go` | HTTP server, HMR, runtime JS |
+| `pkg/middleware/middleware.go` | Logger, CORS, Gzip, Security |
+| `pkg/watcher/watcher.go` | Polling-based file watcher |
+| `pkg/builder/builder.go` | Static site generation |
+| `pkg/devtools/panel.go` | DevTools panel UI |
+| `pkg/api/helpers.go` | JSON response, routing helpers |
 
 ---
 
@@ -959,6 +666,4 @@ MIT
 
 ---
 
-<p align="center">
-  Built with Go. Inspired by Next.js. Powered by simplicity.
-</p>
+Built with Go. Inspired by Next.js. Powered by simplicity.
