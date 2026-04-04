@@ -39,6 +39,21 @@ func New(cfg *config.NexGoConfig) *Builder {
 	}
 }
 
+// RegisterDataLoader adds a data loader for a route (getServerSideProps equivalent)
+func (b *Builder) RegisterDataLoader(route string, loader renderer.DataLoader) {
+	b.renderer.RegisterDataLoader(route, loader)
+}
+
+// RegisterGlobalState adds state that is available to all pages
+func (b *Builder) RegisterGlobalState(key string, value interface{}) {
+	b.renderer.RegisterGlobalState(key, value)
+}
+
+// Renderer returns the builder's renderer for advanced configuration
+func (b *Builder) Renderer() *renderer.Renderer {
+	return b.renderer
+}
+
 // Build runs the full static site generation
 func (b *Builder) Build() (*BuildResult, error) {
 	start := time.Now()

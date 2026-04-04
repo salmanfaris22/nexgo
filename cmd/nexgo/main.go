@@ -245,12 +245,27 @@ func scaffoldFiles(name string) map[string]string {
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 
+	"github.com/salmanfaris22/nexgo/v2/pkg/builder"
 	"github.com/salmanfaris22/nexgo/v2/pkg/config"
+	"github.com/salmanfaris22/nexgo/v2/pkg/renderer"
 	"github.com/salmanfaris22/nexgo/v2/pkg/server"
 )
+
+// Define your data loaders once, use them for both dev server and static build
+var loaders = map[string]renderer.DataLoader{
+	// Example: load blog posts for /blog
+	// "/blog": func(req *http.Request, params map[string]string) (map[string]interface{}, error) {
+	//     return map[string]interface{}{
+	//         "posts": []map[string]interface{}{
+	//             {"slug": "hello-world", "title": "Hello World", "excerpt": "My first post"},
+	//         },
+	//     }, nil
+	// },
+}
 
 func main() {
 	cfg, err := config.Load(".")
@@ -258,15 +273,21 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Check if we're building or serving
+	if len(os.Args) > 1 && os.Args[1] == "build" {
+		runBuild(cfg)
+		return
+	}
+
 	srv, err := server.New(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Register data loaders (like getServerSideProps in Next.js)
-	// srv.RegisterDataLoader("/blog/[slug]", func(req *http.Request, params map[string]string) (map[string]interface{}, error) {
-	//     return map[string]interface{}{"slug": params["slug"]}, nil
-	// })
+	// Register data loaders for server
+	for route, loader := range loaders {
+		srv.RegisterDataLoader(route, loader)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -275,6 +296,22 @@ func main() {
 		log.Fatal(err)
 	}
 }
+
+func runBuild(cfg *config.NexGoConfig) {
+	b := builder.New(cfg)
+
+	// Register the same data loaders for static build
+	for route, loader := range loaders {
+		b.RegisterDataLoader(route, loader)
+	}
+
+	if _, err := b.Build(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// Ensure loaders variable is used (remove when you add real loaders)
+var _ = loaders
 `,
 		"layouts/default.html": `<!DOCTYPE html>
 <html lang="en"{{ if .DevMode }} data-nexgo-dev="1"{{ end }}>
