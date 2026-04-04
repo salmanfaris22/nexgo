@@ -13,7 +13,7 @@ import (
 	"github.com/salmanfaris22/nexgo/v2/pkg/server"
 )
 
-const version = "2.0.2"
+const version = "2.0.3"
 
 func main() {
 	if len(os.Args) < 2 {
