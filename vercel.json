@@ -1,0 +1,7 @@
+{
+  "buildCommand": "bash build.sh",
+  "outputDirectory": "portfolio/.nexgo/out",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

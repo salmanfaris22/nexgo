@@ -3,6 +3,9 @@ package middleware
 import (
 	"bufio"
 	"compress/gzip"
+	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -119,6 +122,103 @@ func Chain(middlewares ...func(http.HandlerFunc) http.HandlerFunc) func(http.Han
 		}
 		return final
 	}
+}
+
+// CSP adds Content-Security-Policy headers.
+func CSP(policy string) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Security-Policy", policy)
+			next(w, r)
+		}
+	}
+}
+
+// CSPWithNonce generates a nonce-based CSP header per request.
+func CSPWithNonce(basePolicy string) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			nonce := generateNonce()
+			policy := strings.ReplaceAll(basePolicy, "{nonce}", nonce)
+			w.Header().Set("Content-Security-Policy", policy)
+			w.Header().Set("X-CSP-Nonce", nonce)
+			next(w, r)
+		}
+	}
+}
+
+func generateNonce() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// RouteMiddleware applies middleware only to specific route patterns.
+func RouteMiddleware(pattern string, mw func(http.HandlerFunc) http.HandlerFunc) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if matchPattern(r.URL.Path, pattern) {
+				mw(next)(w, r)
+				return
+			}
+			next(w, r)
+		}
+	}
+}
+
+// RouteGroup applies middleware to a group of routes matching a prefix.
+func RouteGroup(prefix string, middlewares ...func(http.HandlerFunc) http.HandlerFunc) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		chained := Chain(middlewares...)(next)
+		return func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, prefix) {
+				chained(w, r)
+				return
+			}
+			next(w, r)
+		}
+	}
+}
+
+// Timeout wraps a handler with a timeout.
+func Timeout(d time.Duration) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(r.Context(), d)
+			defer cancel()
+			done := make(chan struct{})
+			go func() {
+				next(w, r.WithContext(ctx))
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-ctx.Done():
+				http.Error(w, "Request Timeout", http.StatusGatewayTimeout)
+			}
+		}
+	}
+}
+
+// RequestID adds a unique request ID header.
+func RequestID(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Request-ID")
+		if id == "" {
+			b := make([]byte, 16)
+			rand.Read(b)
+			id = fmt.Sprintf("%x", b)
+		}
+		w.Header().Set("X-Request-ID", id)
+		next(w, r)
+	}
+}
+
+func matchPattern(path, pattern string) bool {
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(path, strings.TrimSuffix(pattern, "*"))
+	}
+	return path == pattern
 }
 
 // --- internal helpers ---

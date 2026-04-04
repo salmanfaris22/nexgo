@@ -37,6 +37,45 @@ type NexGoConfig struct {
 	CacheControl string `json:"cacheControl"`
 	Compression  bool   `json:"compression"`
 
+	// Auth & Session
+	SessionSecret string `json:"sessionSecret"`
+	SessionMaxAge int    `json:"sessionMaxAge"` // seconds
+	AuthSecret    string `json:"authSecret"`
+	CSRFSecret    string `json:"csrfSecret"`
+
+	// Rate Limiting
+	RateLimitPerMinute int `json:"rateLimitPerMinute"`
+
+	// i18n
+	DefaultLocale  string   `json:"defaultLocale"`
+	Locales        []string `json:"locales"`
+	TranslationDir string   `json:"translationDir"`
+
+	// Image Optimization
+	ImageOptimization bool `json:"imageOptimization"`
+
+	// Database
+	DatabaseDriver string `json:"databaseDriver"` // "json", "sqlite3", "postgres"
+	DatabaseDSN    string `json:"databaseDSN"`
+	DatabaseDir    string `json:"databaseDir"`
+
+	// Logging
+	LogLevel  string `json:"logLevel"`  // "debug", "info", "warn", "error"
+	LogFormat string `json:"logFormat"` // "text", "json"
+	LogDir    string `json:"logDir"`
+
+	// Metrics
+	MetricsEnabled bool `json:"metricsEnabled"`
+
+	// Health
+	HealthEnabled bool `json:"healthEnabled"`
+
+	// WebSocket
+	WebSocketEnabled bool `json:"webSocketEnabled"`
+
+	// Plugins
+	Plugins []string `json:"plugins"`
+
 	// Internal (not in config file)
 	RootDir string `json:"-"`
 	DevMode bool   `json:"-"`
@@ -62,6 +101,30 @@ func DefaultConfig() *NexGoConfig {
 		DevTools:          true,
 		CacheControl:      "public, max-age=31536000",
 		Compression:       true,
+		// Auth & Session
+		SessionSecret:  "change-me-in-production",
+		SessionMaxAge:  86400,
+		AuthSecret:     "change-me-in-production",
+		CSRFSecret:     "change-me-csrf-secret",
+		// Rate Limiting
+		RateLimitPerMinute: 60,
+		// i18n
+		DefaultLocale:  "en",
+		TranslationDir: "locales",
+		// Image Optimization
+		ImageOptimization: true,
+		// Database
+		DatabaseDriver: "json",
+		DatabaseDir:    ".nexgo/data",
+		// Logging
+		LogLevel:  "info",
+		LogFormat: "text",
+		LogDir:    ".nexgo/logs",
+		// Metrics & Health
+		MetricsEnabled: true,
+		HealthEnabled:  true,
+		// WebSocket
+		WebSocketEnabled: true,
 	}
 }
 
