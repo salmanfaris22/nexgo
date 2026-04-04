@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/salmanfaris22/nexgo/pkg/cache"
+	"github.com/salmanfaris22/nexgo/v2/pkg/cache"
 )
 
 // JSON writes a JSON response with status 200

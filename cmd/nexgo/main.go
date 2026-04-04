@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/salmanfaris22/nexgo/pkg/builder"
-	"github.com/salmanfaris22/nexgo/pkg/config"
-	"github.com/salmanfaris22/nexgo/pkg/server"
+	"github.com/salmanfaris22/nexgo/v2/pkg/builder"
+	"github.com/salmanfaris22/nexgo/v2/pkg/config"
+	"github.com/salmanfaris22/nexgo/v2/pkg/server"
 )
 
-const version = "1.0.5"
+const version = "2.0.2"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -248,8 +248,8 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/salmanfaris22/nexgo/pkg/config"
-	"github.com/salmanfaris22/nexgo/pkg/server"
+	"github.com/salmanfaris22/nexgo/v2/pkg/config"
+	"github.com/salmanfaris22/nexgo/v2/pkg/server"
 )
 
 func main() {
@@ -348,7 +348,7 @@ func main() {
 import (
 	"encoding/json"
 	"net/http"
-	"github.com/salmanfaris22/nexgo/pkg/router"
+	"github.com/salmanfaris22/nexgo/v2/pkg/router"
 )
 
 func init() { router.RegisterAPI("/api/hello", Hello) }

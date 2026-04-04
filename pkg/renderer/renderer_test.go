@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"testing"
 
-	"github.com/salmanfaris22/nexgo/pkg/config"
+	"github.com/salmanfaris22/nexgo/v2/pkg/config"
 )
 
 func TestStateManagement(t *testing.T) {

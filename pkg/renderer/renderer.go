@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/salmanfaris22/nexgo/pkg/config"
-	"github.com/salmanfaris22/nexgo/pkg/worker"
+	"github.com/salmanfaris22/nexgo/v2/pkg/config"
+	"github.com/salmanfaris22/nexgo/v2/pkg/worker"
 )
 
 // PageData is passed to every template
