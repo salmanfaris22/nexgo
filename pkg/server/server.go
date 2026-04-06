@@ -9,10 +9,13 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/salmanfaris22/nexgo/v2/pkg/cache"
+	"github.com/salmanfaris22/nexgo/v2/pkg/cluster"
 	"github.com/salmanfaris22/nexgo/v2/pkg/config"
 	"github.com/salmanfaris22/nexgo/v2/pkg/devtools"
 	"github.com/salmanfaris22/nexgo/v2/pkg/islands"
@@ -40,6 +43,8 @@ type Server struct {
 	renderer      *renderer.Renderer
 	watcher       *watcher.Watcher
 	httpServer    *http.Server
+	cluster       *cluster.Cluster
+	responseCache *cache.Cache
 	hmrMu         sync.RWMutex
 	hmrClients    map[*HMRClient]bool
 	pendingRoutes []routeEntry
@@ -123,11 +128,27 @@ func (s *Server) Start(ctx context.Context) error {
 		s.watcher.Start()
 	}
 
+	// Choose logger middleware: async for production, sync for dev
+	loggerMW := middleware.Logger
+	if s.cfg.AsyncLogging && !s.cfg.DevMode {
+		loggerMW = middleware.AsyncLogger
+	}
+
 	mainHandler := middleware.Chain(
 		middleware.Recover,
-		middleware.Logger,
+		loggerMW,
 		middleware.SecurityHeaders,
 	)(s.handleRequest)
+
+	// Response caching for production GET requests
+	if s.cfg.ResponseCache && !s.cfg.DevMode {
+		ttl := time.Duration(s.cfg.ResponseCacheTTL) * time.Second
+		if ttl == 0 {
+			ttl = 5 * time.Minute
+		}
+		s.responseCache = cache.New(ttl)
+		mainHandler = cache.Middleware(s.responseCache, ttl)(mainHandler)
+	}
 
 	if s.cfg.Compression {
 		mainHandler = middleware.Gzip(mainHandler)
@@ -135,6 +156,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/", mainHandler)
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
+
 	s.httpServer = &http.Server{
 		Addr:         addr,
 		Handler:      mux,
@@ -142,9 +164,38 @@ func (s *Server) Start(ctx context.Context) error {
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+	if s.cfg.ReadBufferSize > 0 {
+		s.httpServer.ReadHeaderTimeout = 5 * time.Second
+		s.httpServer.MaxHeaderBytes = s.cfg.ReadBufferSize
+	}
 
 	s.printBanner(addr)
 
+	// Cluster mode: multi-worker for production
+	if s.cfg.ClusterMode && !s.cfg.DevMode {
+		clusterCfg := cluster.Config{
+			Workers:         s.cfg.ClusterWorkers,
+			GracefulTimeout: 30 * time.Second,
+			ReadTimeout:     15 * time.Second,
+			WriteTimeout:    30 * time.Second,
+			IdleTimeout:     60 * time.Second,
+		}
+		s.cluster = cluster.New(clusterCfg, mux)
+
+		go func() {
+			<-ctx.Done()
+			if err := s.cluster.Shutdown(); err != nil {
+				log.Printf("[NexGo] Cluster shutdown error: %v", err)
+			}
+			if s.responseCache != nil {
+				s.responseCache.Stop()
+			}
+		}()
+
+		return s.cluster.ListenAndServe(addr)
+	}
+
+	// Single-server mode (dev or non-cluster)
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -154,6 +205,9 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 		if s.watcher != nil {
 			s.watcher.Stop()
+		}
+		if s.responseCache != nil {
+			s.responseCache.Stop()
 		}
 	}()
 
@@ -358,6 +412,9 @@ func (s *Server) handleRuntime(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) printBanner(addr string) {
 	mode := "\033[32mproduction\033[0m"
+	if s.cfg.ClusterMode && !s.cfg.DevMode {
+		mode = "\033[32mproduction\033[0m (cluster mode)"
+	}
 	if s.cfg.DevMode {
 		mode = "\033[33mdevelopment\033[0m (hot reload on)"
 	}
@@ -370,6 +427,19 @@ func (s *Server) printBanner(addr string) {
 	islandNames := s.renderer.Islands().Names()
 	if len(islandNames) > 0 {
 		fmt.Printf("  \033[1mIslands:\033[0m %d (%s)\n", len(islandNames), strings.Join(islandNames, ", "))
+	}
+	if s.cfg.ClusterMode && !s.cfg.DevMode {
+		workers := s.cfg.ClusterWorkers
+		if workers <= 0 {
+			workers = runtime.NumCPU()
+		}
+		fmt.Printf("  \033[1mWorkers:\033[0m %d CPU cores\n", workers)
+	}
+	if s.cfg.ResponseCache && !s.cfg.DevMode {
+		fmt.Printf("  \033[1mCache:\033[0m   response caching (%ds TTL)\n", s.cfg.ResponseCacheTTL)
+	}
+	if s.cfg.AsyncLogging && !s.cfg.DevMode {
+		fmt.Printf("  \033[1mLogger:\033[0m  async (non-blocking)\n")
 	}
 	if s.cfg.DevMode {
 		fmt.Printf("  \033[1mDevtools:\033[0m \033[4mhttp://%s/_nexgo/devtools\033[0m\n", addr)

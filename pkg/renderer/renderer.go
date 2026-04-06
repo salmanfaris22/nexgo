@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/salmanfaris22/nexgo/v2/pkg/config"
@@ -156,6 +157,13 @@ func (c *TemplateCache) Clear() {
 	c.mu.Unlock()
 }
 
+// templateSnapshot is an immutable snapshot used for lock-free reads.
+type templateSnapshot struct {
+	templates  map[string]*template.Template
+	layouts    map[string]*template.Template
+	components map[string]*template.Template
+}
+
 // Renderer handles all template rendering
 type Renderer struct {
 	mu          sync.RWMutex
@@ -169,6 +177,7 @@ type Renderer struct {
 	buildID     string
 	cache       *TemplateCache
 	islands     *islands.Registry
+	snap        atomic.Value // stores *templateSnapshot for lock-free reads
 }
 
 // New creates a new Renderer
@@ -236,7 +245,30 @@ func (r *Renderer) LoadAll() error {
 		return fmt.Errorf("loading pages: %w", err)
 	}
 
+	// Publish an immutable snapshot for lock-free reads
+	r.publishSnapshot()
+
 	return nil
+}
+
+// publishSnapshot stores an immutable copy of the current template maps.
+// Must be called while holding r.mu write lock.
+func (r *Renderer) publishSnapshot() {
+	snap := &templateSnapshot{
+		templates:  make(map[string]*template.Template, len(r.templates)),
+		layouts:    make(map[string]*template.Template, len(r.layouts)),
+		components: make(map[string]*template.Template, len(r.components)),
+	}
+	for k, v := range r.templates {
+		snap.templates[k] = v
+	}
+	for k, v := range r.layouts {
+		snap.layouts[k] = v
+	}
+	for k, v := range r.components {
+		snap.components[k] = v
+	}
+	r.snap.Store(snap)
 }
 
 func (r *Renderer) loadTemplatesFromDir(dir string, targetMap map[string]*template.Template, typeName string) error {
@@ -332,11 +364,9 @@ func (r *Renderer) loadPage(name, path string) error {
 	return nil
 }
 
-// RenderPage renders a page template to the response
+// RenderPage renders a page template to the response.
+// Uses an atomic snapshot for lock-free template lookups in production.
 func (r *Renderer) RenderPage(w http.ResponseWriter, req *http.Request, filePath string, params map[string]string) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	pagesDir := r.cfg.PagesAbsDir()
 	rel, err := filepath.Rel(pagesDir, filePath)
 	if err != nil {
@@ -345,9 +375,25 @@ func (r *Renderer) RenderPage(w http.ResponseWriter, req *http.Request, filePath
 	ext := filepath.Ext(rel)
 	name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
 
-	tmpl, ok := r.templates[name]
-	if !ok {
-		return fmt.Errorf("template not found: %s", name)
+	// Try lock-free read from atomic snapshot first
+	var tmpl *template.Template
+	var layout *template.Template
+	if snapVal := r.snap.Load(); snapVal != nil {
+		snap := snapVal.(*templateSnapshot)
+		tmpl = snap.templates[name]
+		if tmpl != nil {
+			layout = r.detectLayoutFromSnap(name, snap)
+		}
+	}
+
+	// Fallback to mutex-protected read (dev mode or first request before snapshot)
+	if tmpl == nil {
+		r.mu.RLock()
+		tmpl = r.templates[name]
+		r.mu.RUnlock()
+		if tmpl == nil {
+			return fmt.Errorf("template not found: %s", name)
+		}
 	}
 
 	// Build page data
@@ -384,8 +430,12 @@ func (r *Renderer) RenderPage(w http.ResponseWriter, req *http.Request, filePath
 		pageData.Props = props
 	}
 
-	// Check for layout
-	layout := r.detectLayout(name)
+	// Resolve layout if not already found via snapshot
+	if layout == nil {
+		r.mu.RLock()
+		layout = r.detectLayout(name)
+		r.mu.RUnlock()
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Powered-By", "NexGo")
@@ -411,6 +461,25 @@ func (r *Renderer) detectLayout(pageName string) *template.Template {
 		}
 	}
 	if tmpl, ok := r.layouts["default"]; ok {
+		return tmpl
+	}
+	return nil
+}
+
+// detectLayoutFromSnap resolves a layout from the atomic snapshot (lock-free).
+func (r *Renderer) detectLayoutFromSnap(pageName string, snap *templateSnapshot) *template.Template {
+	parts := strings.Split(pageName, "/")
+	for i := len(parts); i > 0; i-- {
+		dir := strings.Join(parts[:i-1], "/")
+		layoutName := "default"
+		if dir != "" {
+			layoutName = dir + "/layout"
+		}
+		if tmpl, ok := snap.layouts[layoutName]; ok {
+			return tmpl
+		}
+	}
+	if tmpl, ok := snap.layouts["default"]; ok {
 		return tmpl
 	}
 	return nil
@@ -450,6 +519,7 @@ func (r *Renderer) Reload() error {
 	r.layouts = make(map[string]*template.Template)
 	r.components = make(map[string]*template.Template)
 	r.mu.Unlock()
+	// LoadAll will call publishSnapshot at the end
 	return r.LoadAll()
 }
 

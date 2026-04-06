@@ -35,8 +35,15 @@ type NexGoConfig struct {
 	DevTools  bool `json:"devTools"`
 
 	// Performance
-	CacheControl string `json:"cacheControl"`
-	Compression  bool   `json:"compression"`
+	CacheControl    string `json:"cacheControl"`
+	Compression     bool   `json:"compression"`
+	ClusterMode     bool   `json:"clusterMode"`
+	ClusterWorkers  int    `json:"clusterWorkers"`  // 0 = auto (NumCPU)
+	AsyncLogging    bool   `json:"asyncLogging"`
+	ResponseCache   bool   `json:"responseCache"`
+	ResponseCacheTTL int   `json:"responseCacheTTL"` // seconds, 0 = 300
+	ReadBufferSize  int    `json:"readBufferSize"`   // bytes, 0 = default
+	WriteBufferSize int    `json:"writeBufferSize"`  // bytes, 0 = default
 
 	// Auth & Session
 	SessionSecret string `json:"sessionSecret"`
@@ -101,8 +108,15 @@ func DefaultConfig() *NexGoConfig {
 		DefaultRenderMode: "ssr",
 		HotReload:         true,
 		DevTools:          true,
-		CacheControl:      "public, max-age=31536000",
-		Compression:       true,
+		CacheControl:       "public, max-age=31536000",
+		Compression:        true,
+		ClusterMode:        false,
+		ClusterWorkers:     0,
+		AsyncLogging:       false,
+		ResponseCache:      false,
+		ResponseCacheTTL:   300,
+		ReadBufferSize:     0,
+		WriteBufferSize:    0,
 		// Auth & Session
 		SessionSecret:  "change-me-in-production",
 		SessionMaxAge:  86400,

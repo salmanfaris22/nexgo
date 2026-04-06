@@ -13,7 +13,7 @@ import (
 	"github.com/salmanfaris22/nexgo/v2/pkg/server"
 )
 
-const version = "2.1.0"
+const version = "2.2.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -349,7 +349,7 @@ var _ = loaders
   </div>
 </section>
 <section class="features">
-  <div class="feature-card"><span class="icon">⚡</span><h3>Blazing Fast</h3><p>50k+ req/sec on a single Go goroutine.</p></div>
+  <div class="feature-card"><span class="icon">⚡</span><h3>Blazing Fast</h3><p>200k+ req/sec with cluster mode.</p></div>
   <div class="feature-card"><span class="icon">📁</span><h3>File-Based Routing</h3><p>pages/about.html → /about. Dynamic: pages/blog/[slug].html</p></div>
   <div class="feature-card"><span class="icon">🔥</span><h3>Hot Reload</h3><p>Instant browser refresh on template save.</p></div>
   <div class="feature-card"><span class="icon">🔌</span><h3>API Routes</h3><p>pages/api/*.go → REST API endpoints.</p></div>
@@ -371,7 +371,7 @@ var _ = loaders
     <li>🌐 SSR and SSG support</li>
     <li>🔌 API routes as Go handlers</li>
     <li>🎨 Layouts and reusable components</li>
-    <li>⚡ 50,000+ requests/second</li>
+    <li>⚡ 200,000+ requests/second (cluster mode)</li>
     <li>📦 Single binary — zero runtime deps</li>
   </ul>
 </div>`,

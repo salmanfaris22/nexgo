@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,6 +36,57 @@ func Logger(next http.HandlerFunc) http.HandlerFunc {
 
 		log.Printf("%s%d\033[0m %s %s %s",
 			color, status, r.Method, r.URL.Path, dur)
+	}
+}
+
+// asyncLogEntry holds data for background log writing.
+type asyncLogEntry struct {
+	status int
+	method string
+	path   string
+	dur    time.Duration
+}
+
+var (
+	asyncLogCh   chan asyncLogEntry
+	asyncLogOnce sync.Once
+)
+
+func startAsyncLogger() {
+	asyncLogCh = make(chan asyncLogEntry, 8192)
+	go func() {
+		for e := range asyncLogCh {
+			color := "\033[32m"
+			if e.status >= 400 {
+				color = "\033[33m"
+			}
+			if e.status >= 500 {
+				color = "\033[31m"
+			}
+			log.Printf("%s%d\033[0m %s %s %s",
+				color, e.status, e.method, e.path, e.dur)
+		}
+	}()
+}
+
+// AsyncLogger is a non-blocking logger that writes to a buffered channel.
+// Under high throughput this avoids blocking request goroutines on I/O.
+func AsyncLogger(next http.HandlerFunc) http.HandlerFunc {
+	asyncLogOnce.Do(startAsyncLogger)
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		wrapped := &responseWriter{ResponseWriter: w, status: 200}
+		next(wrapped, r)
+		select {
+		case asyncLogCh <- asyncLogEntry{
+			status: wrapped.status,
+			method: r.Method,
+			path:   r.URL.Path,
+			dur:    time.Since(start),
+		}:
+		default:
+			// Drop log entry if buffer is full — never block the request
+		}
 	}
 }
 

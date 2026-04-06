@@ -54,6 +54,12 @@ func RegisterAPI(pattern string, handler http.HandlerFunc) {
 	apiHandlerRegistry[pattern] = handler
 }
 
+// routeCacheEntry stores a cached route match result.
+type routeCacheEntry struct {
+	route  *Route
+	params map[string]string
+}
+
 // Router manages all application routes
 type Router struct {
 	mu         sync.RWMutex
@@ -62,6 +68,7 @@ type Router struct {
 	notFound   http.HandlerFunc
 	errorPage  http.HandlerFunc
 	middleware []Middleware
+	routeCache sync.Map // path -> *routeCacheEntry
 }
 
 // New creates a new Router scanning the given pages directory
@@ -79,6 +86,7 @@ func (r *Router) Scan() error {
 	defer r.mu.Unlock()
 
 	r.routes = nil
+	r.routeCache = sync.Map{} // clear cached matches on rescan
 
 	err := filepath.WalkDir(r.pagesDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -224,15 +232,30 @@ func (r *Router) fileToRoute(rel, abs string) (*Route, error) {
 	return route, nil
 }
 
-// Match finds the best matching route for a request path
+// Match finds the best matching route for a request path.
+// Results are cached in a sync.Map for lock-free repeated lookups.
 func (r *Router) Match(urlPath string) (*Route, map[string]string) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	// Normalize path
 	if urlPath == "" {
 		urlPath = "/"
 	}
+
+	// Fast path: check cache first (lock-free read)
+	if cached, ok := r.routeCache.Load(urlPath); ok {
+		ce := cached.(*routeCacheEntry)
+		if ce.route == nil {
+			return nil, nil
+		}
+		// Return a copy of params so callers don't share map state
+		params := make(map[string]string, len(ce.params))
+		for k, v := range ce.params {
+			params[k] = v
+		}
+		return ce.route, params
+	}
+
+	// Slow path: regex match
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
 	for _, route := range r.routes {
 		matches := route.Regex.FindStringSubmatch(urlPath)
@@ -246,9 +269,16 @@ func (r *Router) Match(urlPath string) (*Route, map[string]string) {
 				params[name] = matches[i+1]
 			}
 		}
+
+		// Only cache static routes (no params) — dynamic routes have unique paths
+		if len(route.Params) == 0 {
+			r.routeCache.Store(urlPath, &routeCacheEntry{route: route, params: params})
+		}
 		return route, params
 	}
 
+	// Cache miss result for 404 paths too (prevents repeated regex scans)
+	r.routeCache.Store(urlPath, &routeCacheEntry{route: nil})
 	return nil, nil
 }
 
