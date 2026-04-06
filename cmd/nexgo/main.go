@@ -13,7 +13,7 @@ import (
 	"github.com/salmanfaris22/nexgo/v2/pkg/server"
 )
 
-const version = "2.0.3"
+const version = "2.1.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -131,6 +131,7 @@ func runCreate(args []string) {
 		filepath.Join(name, "pages", "blog"),
 		filepath.Join(name, "components"),
 		filepath.Join(name, "layouts"),
+		filepath.Join(name, "islands"),
 		filepath.Join(name, "static", "css"),
 		filepath.Join(name, "static", "js"),
 	}
@@ -233,6 +234,7 @@ func scaffoldFiles(name string) map[string]string {
   "staticDir": "static",
   "layoutsDir": "layouts",
   "componentsDir": "components",
+  "islandsDir": "islands",
   "outputDir": ".nexgo/out",
   "hotReload": true,
   "compression": true,
@@ -321,6 +323,7 @@ var _ = loaders
   <title>{{ .Title }}</title>
   <link rel="stylesheet" href="/static/css/global.css">
   <script src="/_nexgo/runtime.js" defer></script>
+  <script src="/_nexgo/island-runtime.js" defer></script>
 </head>
 <body>
   <nav class="nav">
@@ -352,6 +355,11 @@ var _ = loaders
   <div class="feature-card"><span class="icon">🔌</span><h3>API Routes</h3><p>pages/api/*.go → REST API endpoints.</p></div>
   <div class="feature-card"><span class="icon">🌐</span><h3>SSR + SSG</h3><p>Server render or static generate — your choice.</p></div>
   <div class="feature-card"><span class="icon">📦</span><h3>Single Binary</h3><p>Deploy one file. No Node.js, no npm, no runtime.</p></div>
+</section>
+<section class="page-content" style="text-align:center;padding-top:0;">
+  <h2>Islands Architecture Demo</h2>
+  <p style="color:var(--muted);margin-bottom:2rem;">This counter is an <strong>island</strong> — only its JS is shipped. The rest of the page is static HTML with zero JavaScript.</p>
+  {{ island "counter" (props "count" 0) "client:load" }}
 </section>`,
 		"pages/about.html": `<div class="page-content">
   <h1>About NexGo</h1>
@@ -397,6 +405,32 @@ func Hello(w http.ResponseWriter, r *http.Request) {
 		"method":  r.Method,
 	})
 }`,
+		// --- Example Islands ---
+		"islands/counter.html": `<div class="island-counter">
+  <span class="counter-value">{{ .count }}</span>
+  <button class="btn btn-ghost counter-btn" data-action="decrement">-</button>
+  <button class="btn btn-primary counter-btn" data-action="increment">+</button>
+</div>`,
+		"islands/counter.js": `// Island: counter
+// This JS only loads when the island hydrates — not on every page.
+export default function init(el, props) {
+  let count = props.count || 0;
+  const display = el.querySelector('.counter-value');
+  const buttons = el.querySelectorAll('.counter-btn');
+
+  function render() {
+    display.textContent = count;
+  }
+
+  buttons.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      if (btn.dataset.action === 'increment') count++;
+      else count--;
+      render();
+    });
+  });
+}
+`,
 		"static/css/global.css": `@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
 :root{--bg:#050505;--surface:#0f0f0f;--border:#1c1c1c;--text:#ebebeb;--muted:#666;--accent:#00d2ff;--accent2:#7b2ff7;--radius:12px;--font:'Outfit',system-ui,sans-serif;--mono:'JetBrains Mono',monospace}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -429,6 +463,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);line-height:
 .blog-card:hover{border-color:var(--accent)}.blog-card h2{font-size:1.2rem;margin-bottom:.5rem}
 .blog-card h2 a{color:var(--text);text-decoration:none}.blog-card p{color:var(--muted);font-size:.875rem}
 .footer{text-align:center;padding:2.5rem 2rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--border)}
-main{animation:fadeUp .25s ease}@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`,
+main{animation:fadeUp .25s ease}@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.island-counter{display:inline-flex;align-items:center;gap:1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem 2rem}
+.counter-value{font-size:2.5rem;font-weight:900;min-width:3ch;text-align:center;font-family:var(--mono);background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.counter-btn{width:3rem;height:3rem;display:flex;align-items:center;justify-content:center;font-size:1.5rem;border-radius:50%;padding:0}`,
 	}
 }

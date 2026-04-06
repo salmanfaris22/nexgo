@@ -15,6 +15,7 @@ import (
 
 	"github.com/salmanfaris22/nexgo/v2/pkg/config"
 	"github.com/salmanfaris22/nexgo/v2/pkg/devtools"
+	"github.com/salmanfaris22/nexgo/v2/pkg/islands"
 	"github.com/salmanfaris22/nexgo/v2/pkg/middleware"
 	"github.com/salmanfaris22/nexgo/v2/pkg/renderer"
 	"github.com/salmanfaris22/nexgo/v2/pkg/router"
@@ -101,6 +102,8 @@ func (s *Server) Start(ctx context.Context) error {
 		http.FileServer(http.Dir(s.cfg.StaticAbsDir()))))
 
 	mux.HandleFunc("/_nexgo/runtime.js", s.handleRuntime)
+	mux.HandleFunc("/_nexgo/islands/", s.handleIslandJS)
+	mux.HandleFunc("/_nexgo/island-runtime.js", s.handleIslandRuntime)
 	mux.HandleFunc("/_nexgo/live", s.handleLive)
 
 	if s.cfg.DevMode {
@@ -112,6 +115,7 @@ func (s *Server) Start(ctx context.Context) error {
 		s.watcher.Watch(s.cfg.PagesAbsDir())
 		s.watcher.Watch(s.cfg.AbsPath(s.cfg.LayoutsDir))
 		s.watcher.Watch(s.cfg.AbsPath(s.cfg.ComponentsDir))
+		s.watcher.Watch(s.cfg.AbsPath(s.cfg.IslandsDir))
 		s.watcher.OnChange(func(e watcher.Event) {
 			log.Printf("[NexGo] %s", filepath.Base(e.Path))
 			s.reload()
@@ -308,6 +312,38 @@ func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleIslandJS serves individual island JS files.
+// GET /_nexgo/islands/counter.js → serves islands/counter.js
+func (s *Server) handleIslandJS(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/_nexgo/islands/")
+	name = strings.TrimSuffix(name, ".js")
+
+	data, ok := s.renderer.Islands().GetJS(name)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	if s.cfg.DevMode {
+		w.Header().Set("Cache-Control", "no-cache")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+	w.Write(data)
+}
+
+// handleIslandRuntime serves the island hydration runtime.
+func (s *Server) handleIslandRuntime(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	if s.cfg.DevMode {
+		w.Header().Set("Cache-Control", "no-cache")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+	}
+	w.Write([]byte(islands.RuntimeJS()))
+}
+
 func (s *Server) handleRuntime(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	if s.cfg.DevMode {
@@ -331,6 +367,10 @@ func (s *Server) printBanner(addr string) {
 	fmt.Printf("  \033[1mLocal:\033[0m   \033[4mhttp://%s\033[0m\n", addr)
 	fmt.Printf("  \033[1mMode:\033[0m    %s\n", mode)
 	fmt.Printf("  \033[1mPages:\033[0m   ./%s/\n", s.cfg.PagesDir)
+	islandNames := s.renderer.Islands().Names()
+	if len(islandNames) > 0 {
+		fmt.Printf("  \033[1mIslands:\033[0m %d (%s)\n", len(islandNames), strings.Join(islandNames, ", "))
+	}
 	if s.cfg.DevMode {
 		fmt.Printf("  \033[1mDevtools:\033[0m \033[4mhttp://%s/_nexgo/devtools\033[0m\n", addr)
 	}

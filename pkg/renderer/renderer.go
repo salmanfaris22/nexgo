@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/salmanfaris22/nexgo/v2/pkg/config"
+	"github.com/salmanfaris22/nexgo/v2/pkg/islands"
 	"github.com/salmanfaris22/nexgo/v2/pkg/worker"
 )
 
@@ -167,6 +168,7 @@ type Renderer struct {
 	funcMap     template.FuncMap
 	buildID     string
 	cache       *TemplateCache
+	islands     *islands.Registry
 }
 
 // New creates a new Renderer
@@ -182,7 +184,17 @@ func New(cfg *config.NexGoConfig) *Renderer {
 		cache:       NewTemplateCache(),
 	}
 	r.funcMap = r.buildFuncMap()
+
+	// Initialize islands registry
+	islandsDir := cfg.AbsPath(cfg.IslandsDir)
+	r.islands = islands.NewRegistry(islandsDir, r.funcMap)
+
 	return r
+}
+
+// Islands returns the island registry for use by the server.
+func (r *Renderer) Islands() *islands.Registry {
+	return r.islands
 }
 
 // RegisterDataLoader registers a server-side data loader for a route
@@ -203,6 +215,11 @@ func (r *Renderer) RegisterGlobalState(key string, value interface{}) {
 func (r *Renderer) LoadAll() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Load islands
+	if err := r.islands.Scan(); err != nil {
+		return fmt.Errorf("loading islands: %w", err)
+	}
 
 	// Load layouts first
 	if err := r.loadLayouts(); err != nil {
@@ -522,6 +539,48 @@ func (r *Renderer) buildFuncMap() template.FuncMap {
 				return def
 			}
 			return val
+		},
+
+		// Island Architecture — render an interactive island component.
+		// Usage:
+		//   {{ island "counter" }}
+		//   {{ island "counter" (props "count" 5) }}
+		//   {{ island "counter" (props "count" 5) "client:visible" }}
+		//   {{ island "chart" (props "data" .Props.sales) "client:idle" }}
+		//   {{ island "menu" nil "client:media=(max-width:768px)" }}
+		//   {{ island "sidebar" (props "user" .State.user) "client:none" }}
+		"island": func(name string, args ...interface{}) template.HTML {
+			var props map[string]interface{}
+			strategy := "client:load"
+
+			for _, arg := range args {
+				switch v := arg.(type) {
+				case map[string]interface{}:
+					props = v
+				case string:
+					strategy = v
+				}
+			}
+
+			return r.islands.Render(name, props, strategy)
+		},
+
+		// Props builds a key-value map for passing to islands.
+		// Usage: {{ island "counter" (props "count" 5 "label" "Clicks") }}
+		"props": func(pairs ...interface{}) map[string]interface{} {
+			m := make(map[string]interface{})
+			for i := 0; i+1 < len(pairs); i += 2 {
+				if key, ok := pairs[i].(string); ok {
+					m[key] = pairs[i+1]
+				}
+			}
+			return m
+		},
+
+		// islandRuntime injects the island hydration runtime script.
+		// Place this in your layout: {{ islandRuntime }}
+		"islandRuntime": func() template.HTML {
+			return template.HTML(fmt.Sprintf("<script>%s</script>", islands.RuntimeJS()))
 		},
 	}
 }

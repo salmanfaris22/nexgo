@@ -1,4 +1,4 @@
-# NexGo v1.2.0 — Advanced Features Guide
+# NexGo v2.0.3 — Advanced Features Guide
 
 All new features added in v1.2.0 to make NexGo a scalable, production-ready framework for large applications.
 

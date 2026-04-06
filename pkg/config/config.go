@@ -19,6 +19,7 @@ type NexGoConfig struct {
 	OutputDir     string `json:"outputDir"`
 	ComponentsDir string `json:"componentsDir"`
 	LayoutsDir    string `json:"layoutsDir"`
+	IslandsDir    string `json:"islandsDir"`
 
 	// Build settings
 	Minify        bool   `json:"minify"`
@@ -92,6 +93,7 @@ func DefaultConfig() *NexGoConfig {
 		OutputDir:         ".nexgo/out",
 		ComponentsDir:     "components",
 		LayoutsDir:        "layouts",
+		IslandsDir:        "islands",
 		Minify:            true,
 		SourceMaps:        false,
 		BaseURL:           "",
