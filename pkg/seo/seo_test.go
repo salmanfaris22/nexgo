@@ -43,9 +43,16 @@ func TestRenderMetaTags(t *testing.T) {
 }
 
 func TestRenderMetaTags_NoIndex(t *testing.T) {
-	m := Meta{NoIndex: true}
+	m := Meta{NoIndex: true, NoFollow: true}
 	html := string(RenderMetaTags(m))
 	if !strings.Contains(html, "noindex, nofollow") {
+		t.Error("expected noindex, nofollow meta tag")
+	}
+
+	// Test NoIndex alone
+	m2 := Meta{NoIndex: true}
+	html2 := string(RenderMetaTags(m2))
+	if !strings.Contains(html2, "noindex") {
 		t.Error("expected noindex meta tag")
 	}
 }

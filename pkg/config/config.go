@@ -6,6 +6,35 @@ import (
 	"path/filepath"
 )
 
+// SEOConfig holds SEO-specific configuration.
+type SEOConfig struct {
+	SiteName       string   `json:"siteName"`
+	SiteURL        string   `json:"siteURL"`        // e.g. "https://example.com"
+	TitleTemplate  string   `json:"titleTemplate"`   // e.g. "%s | My Site"
+	DefaultOGImage string   `json:"defaultOGImage"`
+	TwitterSite    string   `json:"twitterSite"`     // e.g. "@mysite"
+	Language       string   `json:"language"`         // e.g. "en"
+	ThemeColor     string   `json:"themeColor"`
+	FaviconURL     string   `json:"faviconURL"`
+	Author         string   `json:"author"`
+	AutoSitemap    bool     `json:"autoSitemap"`     // auto-generate /sitemap.xml
+	AutoRobotsTxt  bool     `json:"autoRobotsTxt"`   // auto-generate /robots.txt
+	AutoCanonical  bool     `json:"autoCanonical"`   // auto-set canonical from route
+	TrailingSlash  bool     `json:"trailingSlash"`   // enforce trailing slash policy
+	RobotsAllow    []string `json:"robotsAllow"`
+	RobotsDisallow []string `json:"robotsDisallow"`
+	Redirects      []RedirectConfig `json:"redirects"`
+	CoreWebVitals  bool     `json:"coreWebVitals"`   // inject CWV tracking script
+	VitalsEndpoint string   `json:"vitalsEndpoint"`  // endpoint for CWV reports
+}
+
+// RedirectConfig holds a redirect rule from config.
+type RedirectConfig struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Status int    `json:"status"` // 301 or 302
+}
+
 // NexGoConfig holds all framework configuration
 type NexGoConfig struct {
 	// Project settings
@@ -81,6 +110,9 @@ type NexGoConfig struct {
 	// WebSocket
 	WebSocketEnabled bool `json:"webSocketEnabled"`
 
+	// SEO
+	SEO SEOConfig `json:"seo"`
+
 	// Plugins
 	Plugins []string `json:"plugins"`
 
@@ -141,6 +173,18 @@ func DefaultConfig() *NexGoConfig {
 		HealthEnabled:  true,
 		// WebSocket
 		WebSocketEnabled: true,
+		// SEO
+		SEO: SEOConfig{
+			Language:       "en",
+			ThemeColor:     "#00d2ff",
+			AutoSitemap:    true,
+			AutoRobotsTxt:  true,
+			AutoCanonical:  true,
+			RobotsAllow:    []string{"/"},
+			RobotsDisallow: []string{"/api/", "/_nexgo/"},
+			CoreWebVitals:  false,
+			VitalsEndpoint: "/api/vitals",
+		},
 	}
 }
 

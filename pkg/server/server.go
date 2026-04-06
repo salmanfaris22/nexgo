@@ -22,6 +22,7 @@ import (
 	"github.com/salmanfaris22/nexgo/v2/pkg/middleware"
 	"github.com/salmanfaris22/nexgo/v2/pkg/renderer"
 	"github.com/salmanfaris22/nexgo/v2/pkg/router"
+	"github.com/salmanfaris22/nexgo/v2/pkg/seo"
 	"github.com/salmanfaris22/nexgo/v2/pkg/watcher"
 )
 
@@ -111,6 +112,15 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/_nexgo/island-runtime.js", s.handleIslandRuntime)
 	mux.HandleFunc("/_nexgo/live", s.handleLive)
 
+	// SEO: auto sitemap.xml
+	if s.cfg.SEO.AutoSitemap {
+		mux.HandleFunc("/sitemap.xml", s.handleSitemap)
+	}
+	// SEO: auto robots.txt
+	if s.cfg.SEO.AutoRobotsTxt {
+		mux.HandleFunc("/robots.txt", s.handleRobotsTxt)
+	}
+
 	if s.cfg.DevMode {
 		mux.HandleFunc("/_nexgo/hmr", s.handleHMR)
 		mux.HandleFunc("/_nexgo/routes", s.handleDevRoutes)
@@ -134,11 +144,12 @@ func (s *Server) Start(ctx context.Context) error {
 		loggerMW = middleware.AsyncLogger
 	}
 
+	seoLang := s.cfg.SEO.Language
 	mainHandler := middleware.Chain(
 		middleware.Recover,
 		loggerMW,
 		middleware.SecurityHeaders,
-	)(s.handleRequest)
+	)(seo.SEOHeaders(seoLang, s.handleRequest))
 
 	// Response caching for production GET requests
 	if s.cfg.ResponseCache && !s.cfg.DevMode {
@@ -396,6 +407,54 @@ func (s *Server) handleIslandRuntime(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 	}
 	w.Write([]byte(islands.RuntimeJS()))
+}
+
+// handleSitemap auto-generates sitemap.xml from the route table.
+func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
+	routes := s.router.GetRoutes()
+	patterns := make([]string, 0, len(routes))
+	for _, rt := range routes {
+		patterns = append(patterns, rt.Pattern)
+	}
+
+	baseURL := s.cfg.SEO.SiteURL
+	if baseURL == "" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		baseURL = fmt.Sprintf("%s://%s", scheme, r.Host)
+	}
+
+	entries := seo.AutoSitemap(baseURL, patterns, 0.5)
+	data, err := seo.RenderSitemap(entries)
+	if err != nil {
+		http.Error(w, "sitemap error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(data)
+}
+
+// handleRobotsTxt auto-generates robots.txt from SEO config.
+func (s *Server) handleRobotsTxt(w http.ResponseWriter, r *http.Request) {
+	baseURL := s.cfg.SEO.SiteURL
+	if baseURL == "" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		baseURL = fmt.Sprintf("%s://%s", scheme, r.Host)
+	}
+	sitemapURL := ""
+	if s.cfg.SEO.AutoSitemap {
+		sitemapURL = baseURL + "/sitemap.xml"
+	}
+	content := seo.RobotsTxt(s.cfg.SEO.RobotsAllow, s.cfg.SEO.RobotsDisallow, sitemapURL)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write([]byte(content))
 }
 
 func (s *Server) handleRuntime(w http.ResponseWriter, r *http.Request) {

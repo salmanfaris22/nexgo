@@ -15,6 +15,7 @@ import (
 
 	"github.com/salmanfaris22/nexgo/v2/pkg/config"
 	"github.com/salmanfaris22/nexgo/v2/pkg/islands"
+	"github.com/salmanfaris22/nexgo/v2/pkg/seo"
 	"github.com/salmanfaris22/nexgo/v2/pkg/worker"
 )
 
@@ -404,10 +405,15 @@ func (r *Renderer) RenderPage(w http.ResponseWriter, req *http.Request, filePath
 		Query:        map[string][]string(req.URL.Query()),
 		Props:        make(map[string]interface{}),
 		State:        make(map[string]interface{}),
-		NexGoVersion: "1.0.5",
+		NexGoVersion: "2.2.1",
 		DevMode:      r.cfg.DevMode,
 		BuildID:      r.buildID,
 		Request:      req,
+	}
+
+	// Auto-canonical from SEO config
+	if r.cfg.SEO.AutoCanonical && r.cfg.SEO.SiteURL != "" {
+		pageData.Canonical = r.cfg.SEO.SiteURL + req.URL.Path
 	}
 
 	// Copy global state
@@ -652,6 +658,91 @@ func (r *Renderer) buildFuncMap() template.FuncMap {
 		"islandRuntime": func() template.HTML {
 			return template.HTML(fmt.Sprintf("<script>%s</script>", islands.RuntimeJS()))
 		},
+
+		// --- SEO Template Functions ---
+
+		// seoTags renders all meta tags from a seo.Meta struct.
+		// Usage: {{ seoTags .SEOMeta }}
+		"seoTags": func(m seo.Meta) template.HTML {
+			sc := seo.SiteConfig{
+				SiteName:       r.cfg.SEO.SiteName,
+				SiteURL:        r.cfg.SEO.SiteURL,
+				TitleTemplate:  r.cfg.SEO.TitleTemplate,
+				DefaultOGImage: r.cfg.SEO.DefaultOGImage,
+				TwitterSite:    r.cfg.SEO.TwitterSite,
+				DefaultLocale:  "en_US",
+				Language:       r.cfg.SEO.Language,
+				FaviconURL:     r.cfg.SEO.FaviconURL,
+				ThemeColor:     r.cfg.SEO.ThemeColor,
+				Author:         r.cfg.SEO.Author,
+			}
+			return seo.RenderMetaTags(m, sc)
+		},
+
+		// seoMeta creates a basic Meta struct for use in templates.
+		// Usage: {{ seoTags (seoMeta "Page Title" "Description" "/page-url") }}
+		"seoMeta": func(title, description, canonical string) seo.Meta {
+			return seo.DefaultMeta(title, description, canonical)
+		},
+
+		// breadcrumbs generates JSON-LD BreadcrumbList from current path.
+		// Usage: {{ breadcrumbs .Path }}
+		"breadcrumbs": func(path string) template.HTML {
+			baseURL := r.cfg.SEO.SiteURL
+			items := seo.AutoBreadcrumbs(baseURL, path)
+			return seo.BreadcrumbSchema(items)
+		},
+
+		// jsonld generates a JSON-LD script tag from a map.
+		// Usage: {{ jsonld (dict "@context" "https://schema.org" "@type" "WebSite" "name" "My Site") }}
+		"jsonld": func(data map[string]interface{}) template.HTML {
+			return seo.JSONLD(data)
+		},
+
+		// websiteSchema generates WebSite JSON-LD with optional search.
+		// Usage: {{ websiteSchema "My Site" "https://example.com" "https://example.com/search?q=" }}
+		"websiteSchema": func(name, url string, searchURL ...string) template.HTML {
+			search := ""
+			if len(searchURL) > 0 {
+				search = searchURL[0]
+			}
+			return seo.WebSiteSchema(name, url, search)
+		},
+
+		// orgSchema generates Organization JSON-LD.
+		// Usage: {{ orgSchema "My Org" "https://example.com" "https://example.com/logo.png" }}
+		"orgSchema": func(name, url, logo string) template.HTML {
+			return seo.OrganizationSchema(name, url, logo, nil)
+		},
+
+		// faqSchema generates FAQ JSON-LD from pairs of question/answer.
+		// Usage: {{ faqSchema "Q1?" "A1." "Q2?" "A2." }}
+		"faqSchema": func(pairs ...string) template.HTML {
+			var items []seo.FAQItem
+			for i := 0; i+1 < len(pairs); i += 2 {
+				items = append(items, seo.FAQItem{Question: pairs[i], Answer: pairs[i+1]})
+			}
+			return seo.FAQSchema(items)
+		},
+
+		// preload generates a preload link tag.
+		// Usage: {{ preload "/static/css/global.css" "style" }}
+		"preload": func(href, as string) template.HTML {
+			return template.HTML(fmt.Sprintf(`<link rel="preload" href="%s" as="%s">`, template.HTMLEscapeString(href), template.HTMLEscapeString(as)))
+		},
+
+		// vitals injects Core Web Vitals tracking script.
+		// Usage: {{ vitals }}
+		"vitals": func() template.HTML {
+			if !r.cfg.SEO.CoreWebVitals {
+				return template.HTML("")
+			}
+			return seo.CoreWebVitalsScript(r.cfg.SEO.VitalsEndpoint)
+		},
+
+		// slugify converts text to SEO-friendly slug.
+		// Usage: {{ slugify "Hello World!" }}
+		"slugify": seo.Slugify,
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 	"github.com/salmanfaris22/nexgo/v2/pkg/server"
 )
 
-const version = "2.2.0"
+const version = "2.2.1"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -132,6 +132,7 @@ func runCreate(args []string) {
 		filepath.Join(name, "components"),
 		filepath.Join(name, "layouts"),
 		filepath.Join(name, "islands"),
+		filepath.Join(name, "seo"),
 		filepath.Join(name, "static", "css"),
 		filepath.Join(name, "static", "js"),
 	}
@@ -239,8 +240,25 @@ func scaffoldFiles(name string) map[string]string {
   "hotReload": true,
   "compression": true,
   "minify": true,
-  "defaultRenderMode": "ssr"
-}`, name),
+  "defaultRenderMode": "ssr",
+  "seo": {
+    "siteName": "%s",
+    "siteURL": "https://example.com",
+    "titleTemplate": "%%s | %s",
+    "defaultOGImage": "https://example.com/static/images/og-default.png",
+    "twitterSite": "@%s",
+    "language": "en",
+    "themeColor": "#00d2ff",
+    "author": "",
+    "autoSitemap": true,
+    "autoRobotsTxt": true,
+    "autoCanonical": true,
+    "coreWebVitals": false,
+    "vitalsEndpoint": "/api/vitals",
+    "robotsAllow": ["/"],
+    "robotsDisallow": ["/api/", "/_nexgo/"]
+  }
+}`, name, name, name, name),
 		"go.mod": fmt.Sprintf("module %s\n\ngo 1.22\n\nrequire github.com/salmanfaris22/nexgo v1.0.0\n", name),
 		"main.go": `package main
 
@@ -255,18 +273,25 @@ import (
 	"github.com/salmanfaris22/nexgo/v2/pkg/config"
 	"github.com/salmanfaris22/nexgo/v2/pkg/renderer"
 	"github.com/salmanfaris22/nexgo/v2/pkg/server"
+
+	// Import your SEO setup — this registers data loaders with SEO meta
+	_ "` + name + `/seo"
 )
 
 // Define your data loaders once, use them for both dev server and static build
 var loaders = map[string]renderer.DataLoader{
-	// Example: load blog posts for /blog
-	// "/blog": func(req *http.Request, params map[string]string) (map[string]interface{}, error) {
-	//     return map[string]interface{}{
-	//         "posts": []map[string]interface{}{
-	//             {"slug": "hello-world", "title": "Hello World", "excerpt": "My first post"},
-	//         },
-	//     }, nil
-	// },
+	// Blog listing with SEO meta
+	"/blog": func(req *http.Request, params map[string]string) (map[string]interface{}, error) {
+		return map[string]interface{}{
+			"posts": []map[string]interface{}{
+				{"slug": "getting-started", "title": "Getting Started with NexGo", "excerpt": "Learn how to build blazing-fast web apps with Go."},
+				{"slug": "seo-best-practices", "title": "SEO Best Practices", "excerpt": "How to optimize your NexGo app for search engines."},
+				{"slug": "deploy-production", "title": "Deploy to Production", "excerpt": "Ship your NexGo app as a single binary."},
+			},
+			"seoTitle":       "Blog",
+			"seoDescription": "Latest articles about web development with NexGo.",
+		}, nil
+	},
 }
 
 func main() {
@@ -319,15 +344,18 @@ var _ = loaders
 <html lang="en"{{ if .DevMode }} data-nexgo-dev="1"{{ end }}>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ .Title }}</title>
+  {{ seoTags (seoMeta .Title .Description .Canonical) }}
+  {{ preload "/static/css/global.css" "style" }}
   <link rel="stylesheet" href="/static/css/global.css">
+  <link rel="alternate" type="application/rss+xml" title="RSS Feed" href="/rss.xml">
   <script src="/_nexgo/runtime.js" defer></script>
   <script src="/_nexgo/island-runtime.js" defer></script>
+  {{ breadcrumbs .Path }}
+  {{ vitals }}
 </head>
 <body>
   <nav class="nav">
-    <a href="/" class="nav-logo">⚡ NexGo</a>
+    <a href="/" class="nav-logo">NexGo</a>
     <div class="nav-links">
       <a href="/">Home</a>
       <a href="/about">About</a>
@@ -336,7 +364,7 @@ var _ = loaders
   </nav>
   <main id="nexgo-root">{{ .Content }}</main>
   <footer class="footer">
-    <p>Built with <strong>NexGo</strong> ⚡</p>
+    <p>Built with <strong>NexGo</strong></p>
   </footer>
 </body>
 </html>`,
@@ -429,6 +457,127 @@ export default function init(el, props) {
       render();
     });
   });
+}
+`,
+		// --- SEO Setup ---
+		"seo/seo.go": `package seo
+
+// This file provides default SEO configuration for your NexGo app.
+// It demonstrates how to use the SEO package with structured data,
+// meta tags, RSS feeds, and more.
+//
+// The init() function runs automatically when imported in main.go.
+// Customize the values below for your site.
+
+import (
+	"github.com/salmanfaris22/nexgo/v2/pkg/seo"
+)
+
+// SiteConfig holds your site-wide SEO defaults.
+// These are applied to every page unless overridden.
+var SiteConfig = seo.SiteConfig{
+	SiteName:       "` + name + `",
+	SiteURL:        "https://example.com",
+	TitleTemplate:  "%s | ` + name + `",
+	DefaultOGImage: "https://example.com/static/images/og-default.png",
+	TwitterSite:    "@` + name + `",
+	DefaultLocale:  "en_US",
+	Language:       "en",
+	ThemeColor:     "#00d2ff",
+	Author:         "",
+}
+
+// HomeMeta returns SEO meta for the homepage.
+func HomeMeta() seo.Meta {
+	return seo.Meta{
+		Title:       "Home",
+		Description: "Welcome to ` + name + ` — a blazing fast web application built with NexGo and Go.",
+		Canonical:   SiteConfig.SiteURL + "/",
+		OGType:      "website",
+		TwitterCard: "summary_large_image",
+	}
+}
+
+// AboutMeta returns SEO meta for the about page.
+func AboutMeta() seo.Meta {
+	return seo.Meta{
+		Title:       "About",
+		Description: "Learn more about ` + name + ` and the technology behind it.",
+		Canonical:   SiteConfig.SiteURL + "/about",
+		OGType:      "website",
+		TwitterCard: "summary_large_image",
+	}
+}
+
+// BlogMeta returns SEO meta for the blog listing page.
+func BlogMeta() seo.Meta {
+	return seo.Meta{
+		Title:       "Blog",
+		Description: "Latest articles and updates from ` + name + `.",
+		Canonical:   SiteConfig.SiteURL + "/blog",
+		OGType:      "website",
+		TwitterCard: "summary_large_image",
+		Keywords:    []string{"blog", "articles", "web development", "go"},
+	}
+}
+
+// DemoStructuredData returns example structured data for your site.
+// Use these in your layouts/pages with {{ safeHTML .Props.websiteSchema }}
+func WebsiteSchemaTag() string {
+	return string(seo.WebSiteSchema(
+		SiteConfig.SiteName,
+		SiteConfig.SiteURL,
+		SiteConfig.SiteURL+"/search?q=",
+	))
+}
+
+// OrganizationSchemaTag returns Organization structured data.
+func OrganizationSchemaTag() string {
+	return string(seo.OrganizationSchema(
+		SiteConfig.SiteName,
+		SiteConfig.SiteURL,
+		SiteConfig.SiteURL+"/static/images/logo.png",
+		[]string{
+			"https://twitter.com/` + name + `",
+			"https://github.com/` + name + `",
+		},
+	))
+}
+
+// DemoFAQ returns example FAQ structured data.
+func DemoFAQ() string {
+	return string(seo.FAQSchema([]seo.FAQItem{
+		{Question: "What is ` + name + `?", Answer: "A blazing fast web application built with NexGo and Go."},
+		{Question: "How fast is it?", Answer: "NexGo can handle 200,000+ requests per second."},
+		{Question: "Do I need Node.js?", Answer: "No! NexGo compiles to a single binary with zero runtime dependencies."},
+	}))
+}
+
+// DemoRSSFeed returns an example RSS feed.
+func DemoRSSFeed() ([]byte, error) {
+	return seo.RenderRSS(seo.Feed{
+		Title:       SiteConfig.SiteName + " Blog",
+		Link:        SiteConfig.SiteURL,
+		Description: "Latest articles from " + SiteConfig.SiteName,
+		Language:    "en",
+		Items: []seo.FeedItem{
+			{
+				Title:       "Getting Started with NexGo",
+				Link:        SiteConfig.SiteURL + "/blog/getting-started",
+				Description: "Learn how to build blazing-fast web apps with Go.",
+			},
+			{
+				Title:       "SEO Best Practices",
+				Link:        SiteConfig.SiteURL + "/blog/seo-best-practices",
+				Description: "How to optimize your NexGo app for search engines.",
+			},
+		},
+	})
+}
+
+func init() {
+	// This runs when the package is imported.
+	// You can register additional SEO handlers here if needed.
 }
 `,
 		"static/css/global.css": `@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
